@@ -1,4 +1,5 @@
 .cache
+.turbo
 .DS_Store
 .githooks
 .idea

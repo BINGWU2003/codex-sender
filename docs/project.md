@@ -1,6 +1,6 @@
 # Codex Sender
 
-> 一个将 Cursor 中的代码片段和问题发送到 Codex 任务的轻量扩展。
+> 一个将 VS Code 与 Cursor 中的代码片段和问题发送到 Codex 任务的轻量扩展。
 
 | 项目信息 | 内容 |
 | --- | --- |
@@ -9,7 +9,7 @@
 | GitHub 仓库 | [BINGWU2003/codex-sender](https://github.com/BINGWU2003/codex-sender) |
 | 许可证 | [MIT](../LICENSE.md) |
 
-总体方案是做一个轻量的 Cursor 扩展，名称为 `Codex Sender`。它只负责收集代码片段、输入问题、选择目标 Codex 会话并发送；完整对话仍然在 Codex Windows App 查看。
+总体方案是做一个标准的 VS Code 兼容扩展，名称为 `Codex Sender`，主要面向 Cursor 使用。VS Code 与 Cursor 安装同一个 VSIX，不维护两套扩展。它只负责收集代码片段、输入问题、选择目标 Codex 会话并发送；完整对话仍然在 Codex Windows App 查看。
 
 ## 最终使用体验
 
@@ -29,9 +29,9 @@
 → 去 Codex App 查看对话和结果
 ```
 
-Cursor 侧不显示 Codex 的完整回复和聊天记录。
+编辑器侧不显示 Codex 的完整回复和聊天记录。
 
-## Cursor 里的界面
+## VS Code 与 Cursor 里的界面
 
 在侧边栏增加一个极简面板：
 
@@ -227,18 +227,53 @@ Windows Codex App 与 Windows 原生 Codex 共用：
 - Cursor 更新后容易失效。
 - 可能造成消息同时发送给 Cursor 和 Codex。
 
-因此采用自己的极简发送面板，界面可以模仿 Cursor，但不显示对话记录。
+因此采用标准 VS Code Webview View 实现自己的极简发送面板，界面可以适配 Cursor，但不显示对话记录。
+
+## Monorepo 架构
+
+项目使用 pnpm workspace 与 Turborepo 管理：
+
+```text
+codex-sender/
+├─ apps/
+│  └─ extension/               # VS Code 兼容扩展，Cursor 复用同一 VSIX
+├─ packages/
+│  ├─ core/                    # 代码引用、任务绑定和消息组装
+│  └─ app-server-client/       # Codex App Server 进程与 JSONL 通信
+├─ docs/
+│  └─ project.md
+├─ pnpm-workspace.yaml
+└─ turbo.json
+```
+
+依赖方向保持单向：
+
+```text
+codex-sender
+  ├─ @codex-sender/core
+  └─ @codex-sender/app-server-client
+```
+
+各模块职责如下：
+
+- `apps/extension`：扩展激活、命令、代码选区、Webview、`globalState` 和用户交互。
+- `packages/core`：不依赖编辑器或 Node.js 的纯 TypeScript 业务逻辑，负责代码引用与最终消息组装。
+- `packages/app-server-client`：Node.js 环境下启动 `codex app-server`，处理 JSONL 请求、响应、通知、超时和进程退出。
+- 根目录：只负责编排 workspace、Turbo 任务、统一代码规范和 CI，不再作为可发布 npm 包。
+
+第一版不单独拆分 UI、配置或协议包；等出现第二个消费者后再提取，避免空包和过早抽象。
 
 ## 开发顺序
 
 第一版先完成核心闭环：
 
-1. Cursor 侧边栏发送框。
-2. 复制粘贴生成 `@文件 (行号)` 标签。
-3. 支持多个文件、多个片段。
-4. 创建 Codex 任务并保存 `threadId`。
-5. 将消息发送到 Codex。
-6. 成功、失败和运行中状态提示。
+1. 建立 monorepo、共享核心类型和 App Server JSONL 客户端。
+2. VS Code/Cursor 侧边栏发送框。
+3. 复制粘贴生成 `@文件 (行号)` 标签。
+4. 支持多个文件、多个片段。
+5. 创建 Codex 任务并保存 `threadId`。
+6. 将消息发送到 Codex。
+7. 成功、失败和运行中状态提示。
 
 第二版再补充：
 
@@ -252,9 +287,9 @@ Windows Codex App 与 Windows 原生 Codex 共用：
 最终架构就是：
 
 ```text
-Cursor 代码选择与复制
+VS Code / Cursor 代码选择与复制
         ↓
-Codex Sender 扩展
+Codex Sender 标准扩展
   ├─ 多片段上下文
   ├─ 极简输入框
   └─ 项目 → threadId 映射
