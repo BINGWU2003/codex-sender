@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@11.1.3",
-  "description": "一个将 VS Code 与 Cursor 中的代码片段和问题发送到 Codex 任务的轻量扩展。",
+  "description": "一个通过 npm CLI 为 Cursor 注入 Codex 发送按钮的本地工具。",
   "author": {
     "name": "BINGWU2003",
     "url": "https://github.com/BINGWU2003"

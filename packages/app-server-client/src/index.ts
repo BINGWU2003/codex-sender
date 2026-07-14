@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from 'node:child_process'
 import type { Interface as ReadlineInterface } from 'node:readline'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
@@ -27,28 +27,36 @@ export interface InitializeResponse extends JsonObject {
   platformOs: string
 }
 
-export interface ThreadStartParams extends JsonObject {
-  cwd?: string | null
-  model?: string | null
+export type ThreadSourceKind = 'appServer' | 'cli' | 'exec' | 'subAgent' | 'subAgentCompact' | 'subAgentOther' | 'subAgentReview' | 'subAgentThreadSpawn' | 'unknown' | 'vscode'
+
+export interface ThreadSummary extends JsonObject {
+  id: string
+  sessionId: string
+  preview: string
+  ephemeral: boolean
+  createdAt: number
+  updatedAt: number
+  cwd: string
+  source: JsonValue
+  status: JsonValue
+  name: string | null
 }
 
-export interface ThreadResumeParams extends JsonObject {
-  threadId: string
-  cwd?: string | null
+export interface ThreadListParams extends JsonObject {
+  cursor?: string | null
+  limit?: number | null
+  sortKey?: 'created_at' | 'recency_at' | 'updated_at' | null
+  sortDirection?: 'asc' | 'desc' | null
+  sourceKinds?: ThreadSourceKind[] | null
+  archived?: boolean | null
+  cwd?: string | string[] | null
+  searchTerm?: string | null
 }
 
-export interface ThreadResponse extends JsonObject {
-  thread: JsonObject & { id: string }
-}
-
-export interface TurnStartParams extends JsonObject {
-  threadId: string
-  input: Array<JsonObject & { type: 'text', text: string, text_elements: [] }>
-  cwd?: string | null
-}
-
-export interface TurnStartResponse extends JsonObject {
-  turn: JsonObject & { id: string }
+export interface ThreadListResponse extends JsonObject {
+  data: ThreadSummary[]
+  nextCursor: string | null
+  backwardsCursor: string | null
 }
 
 export interface JsonRpcErrorObject {
@@ -134,10 +142,21 @@ export class AppServerClient extends EventEmitter {
     child.stderr.on('data', chunk => this.emit('stderr', chunk.toString()))
     child.on('exit', (code, signal) => this.handleExit(child, code, signal))
 
-    await new Promise<void>((resolve, reject) => {
-      child.once('spawn', resolve)
-      child.once('error', reject)
-    })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.once('spawn', resolve)
+        child.once('error', reject)
+      })
+    }
+    catch (error) {
+      if (this.child === child) {
+        this.child = undefined
+        this.lines = undefined
+      }
+      lines.close()
+      child.kill()
+      throw error
+    }
   }
 
   async request<T extends JsonValue | undefined = JsonValue>(method: string, params?: JsonValue): Promise<T> {
@@ -178,28 +197,9 @@ export class AppServerClient extends EventEmitter {
     return await this.initializePromise
   }
 
-  async startThread(params: ThreadStartParams = {}): Promise<ThreadResponse> {
+  async listThreads(params: ThreadListParams = {}): Promise<ThreadListResponse> {
     this.requireInitialized()
-    return await this.request<ThreadResponse>('thread/start', params)
-  }
-
-  async resumeThread(params: ThreadResumeParams): Promise<ThreadResponse> {
-    this.requireInitialized()
-    return await this.request<ThreadResponse>('thread/resume', params)
-  }
-
-  async startTextTurn(params: { threadId: string, text: string, cwd?: string }): Promise<TurnStartResponse> {
-    this.requireInitialized()
-    const request: TurnStartParams = {
-      threadId: params.threadId,
-      cwd: params.cwd,
-      input: [{
-        type: 'text',
-        text: params.text,
-        text_elements: [],
-      }],
-    }
-    return await this.request<TurnStartResponse>('turn/start', request)
+    return await this.request<ThreadListResponse>('thread/list', params)
   }
 
   notify(method: string, params?: JsonValue): void {
@@ -212,7 +212,8 @@ export class AppServerClient extends EventEmitter {
     this.initializePromise = undefined
     this.lines?.close()
     this.lines = undefined
-    child?.kill()
+    if (child)
+      terminateChild(child, this.options.command === 'codex')
     this.rejectPending(new Error('Codex App Server 客户端已停止'))
   }
 
@@ -278,6 +279,14 @@ export class AppServerClient extends EventEmitter {
     }
     this.pending.clear()
   }
+}
+
+function terminateChild(child: ChildProcessWithoutNullStreams, wrappedByCommandShell: boolean): void {
+  if (process.platform === 'win32' && wrappedByCommandShell && child.pid) {
+    spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
+    return
+  }
+  child.kill()
 }
 
 function resolveSpawnInvocation(command: string, args: readonly string[]): { command: string, args: string[] } {

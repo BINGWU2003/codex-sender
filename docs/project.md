@@ -1,302 +1,233 @@
 # Codex Sender
 
-> 一个将 VS Code 与 Cursor 中的代码片段和问题发送到 Codex 任务的轻量扩展。
+> 通过 npm CLI 修改 Cursor 工作台，在原生聊天输入框旁增加“发送到 Codex”按钮。
 
 | 项目信息 | 内容 |
 | --- | --- |
 | 项目名称 | Codex Sender |
+| npm 包 | `codex-sender` |
 | 作者 | [BINGWU2003](https://github.com/BINGWU2003) |
 | GitHub 仓库 | [BINGWU2003/codex-sender](https://github.com/BINGWU2003/codex-sender) |
 | 许可证 | [MIT](../LICENSE.md) |
 
-总体方案是做一个标准的 VS Code 兼容扩展，名称为 `Codex Sender`，主要面向 Cursor 使用。VS Code 与 Cursor 安装同一个 VSIX，不维护两套扩展。它只负责收集代码片段、输入问题、选择目标 Codex 会话并发送；完整对话仍然在 Codex Windows App 查看。
+## 产品定位
+
+Codex Sender 不再采用 VS Code/Cursor 扩展形式，也不提供独立 Webview。目标使用方式是全局安装 npm 包并运行一次安装命令，工具直接在 Cursor 原生聊天输入框旁注入按钮：
+
+```powershell
+npm install -g codex-sender
+codex-sender install
+```
+
+目标是复用 Cursor 已有的输入体验，把同一段输入内容交给 Codex CLI，并允许用户决定新建 Codex 任务还是续接历史任务。
+
+这是一种非官方、随 Cursor 版本变化的本地补丁方案。第一版只支持 Windows Cursor。
+
+当前 `0.1.0` 已完成 npm tarball 构建，但尚未发布到 npm registry。发布前以源码构建和临时安装验证为准。
 
 ## 最终使用体验
 
 ```text
-在文件 A 选择代码
-→ Ctrl+C
-→ 在 Codex Sender 输入框 Ctrl+V
-→ 自动生成 @App.tsx (8-22)
-
-在文件 B 选择代码
-→ Ctrl+C
-→ Ctrl+V
-→ 自动生成 @useChat.ts (31-48)
-
-输入问题
-→ 点击“发送到 Codex”
-→ 去 Codex App 查看对话和结果
+打开 Cursor 项目
+→ 在 Cursor 聊天输入框中输入问题
+→ 点击 Codex
+→ 当前工作区没有绑定时创建 Codex 任务
+→ 已绑定时续接对应任务
+→ 在 Codex App 中查看完整过程和结果
 ```
 
-编辑器侧不显示 Codex 的完整回复和聊天记录。
+任务选择按钮提供：
 
-## VS Code 与 Cursor 里的界面
+- 当前工作区的历史 Codex 任务。
+- “新建 Codex 任务”，用于解除绑定并在下次发送时创建任务。
+- 来自相同 Codex 本地数据目录的 App、CLI、IDE、exec 和 App Server 任务。
 
-在侧边栏增加一个极简面板：
+Cursor 原生发送和 Codex 发送是两个独立动作。Codex Sender 不自动点击 Cursor 的发送按钮，也不清空输入框。
+
+## 任务绑定规则
+
+工作区路径不能唯一表示任务，同一项目可能同时存在多个 Codex 任务。因此本地状态使用：
 
 ```text
-┌─ Codex Sender ─────────────────────┐
-│ 项目：chat-list                    │
-│ 目标任务：修复消息列表        [切换] │
-│                                    │
-│ @App.tsx (8-22)               [×] │
-│ @useChat.ts (31-48)           [×] │
-│ @messageStore.ts (80-105)     [×] │
-│                                    │
-│ ┌────────────────────────────────┐ │
-│ │ 分析这些代码为什么重复发送消息 │ │
-│ └────────────────────────────────┘ │
-│                                    │
-│ [清空上下文]       [发送到 Codex] │
-└────────────────────────────────────┘
+标准化 cwd → activeThreadId
 ```
 
-同时提供快捷键：
-
-```text
-Ctrl+Alt+Enter   聚焦发送框/发送
-Ctrl+Alt+A       直接加入当前代码选区
-```
-
-## 多代码片段的实现
-
-扩展记录每个复制的代码引用：
-
-```ts
-interface CodeReference {
-  workspacePath: string
-  relativeFilePath: string
-  languageId: string
-  startLine: number
-  endLine: number
-  selectedText: string
-  documentVersion: number
-}
-```
-
-粘贴到发送框时，不只是插入普通文本，而是生成：
-
-```text
-@App.tsx (8-22)
-```
-
-这个标签背后保留完整文件路径、行号和代码内容。
-
-可以连续从：
-
-- 同一个文件选择多个片段。
-- 不同文件选择多个片段。
-- 不同目录选择多个片段。
-
-发送前，扩展把所有标签转换成 Codex 能理解的结构化文本。
-
-## 项目与 Codex 会话对应
-
-项目路径只能确定工作区，不能唯一确定会话。因为同一个项目可以有很多 Codex 任务。
-
-所以映射采用：
-
-```text
-标准化项目路径 → 当前绑定的 threadId
-```
-
-例如：
+示例：
 
 ```json
 {
   "d:\\files\\hjc-code\\chat-list": {
     "activeThreadId": "019f5f77-...",
-    "title": "修复消息列表"
+    "title": "修复消息列表",
+    "updatedAt": "2026-07-14T08:00:00.000Z"
   }
 }
 ```
 
-映射保存在 Cursor 扩展的 `globalState` 中，不写进项目，不污染 Git。
-
-扩展提供三个任务管理操作：
-
-- `New Codex Task`
-- `Switch Codex Task`
-- `Send to Current Codex Task`
-
-如果当前项目有多个任务，显示选择框：
+首次发送执行新任务：
 
 ```text
-选择目标 Codex 任务：
-
-1. 修复消息重复问题
-2. 重构虚拟列表
-3. 新建任务
+codex exec --json --sandbox read-only -C <cwd> -
 ```
 
-选中后保存为该项目的默认目标。
-
-## 与 Codex 的通信
-
-扩展在后台启动：
-
-```powershell
-codex app-server
-```
-
-然后使用官方 JSONL 协议通信。
-
-首次创建：
+读取 JSONL 中的 `thread.started`，保存 `thread_id` 后，后续发送执行：
 
 ```text
-initialize
-→ thread/start，传入项目 cwd
-→ 得到 threadId
-→ 保存项目与 threadId 的对应
-→ turn/start 发送消息
+codex exec resume --json <threadId> -
 ```
 
-继续已有任务：
+历史任务由 Codex App Server 的 `thread/list` 提供，按 `cwd` 筛选、按更新时间倒序排列。这样可以选择此前在 Codex App 中创建、且使用相同工作目录和 `CODEX_HOME` 的任务。
+
+## 总体架构
 
 ```text
-thread/resume
-→ turn/start(threadId, cwd, input)
+Cursor workbench.html
+        ↓ 加载
+codex-sender.inject.js
+        ↓ token + HTTP
+localhost bridge
+        ├─ CodexCliRunner → codex exec / exec resume
+        ├─ AppServerClient → codex app-server → thread/list
+        └─ StateStore → 工作区绑定、端口、随机令牌
 ```
 
-如果 Codex 正在处理上一条消息：
-
-- 可以排队等待。
-- 或使用 `turn/steer` 补充上下文。
-- 第一版建议直接排队，行为更容易理解。
-
-## 发送给 Codex 的内容
-
-扩展最终生成类似：
-
-````text
-请分析这些代码为什么会重复发送消息。
-
-片段 1
-文件：src/App.tsx
-行号：8-22
-
-```tsx
-选中的代码……
-```
-
-片段 2
-文件：src/hooks/useChat.ts
-行号：31-48
-
-```ts
-选中的代码……
-```
-
-片段 3
-文件：src/store/messageStore.ts
-行号：80-105
-
-```ts
-选中的代码……
-```
-````
-
-Codex 同时获得正确的项目 `cwd`，因此还能自行读取相关文件和执行项目命令。
-
-## Codex App 中查看
-
-Windows Codex App 与 Windows 原生 Codex 共用：
-
-```text
-%USERPROFILE%\.codex
-```
-
-要保证共享会话：
-
-- Cursor 扩展调用 Windows 原生 Codex。
-- 不单独设置其他 `CODEX_HOME`。
-- 不使用独立的 WSL `~/.codex`。
-
-需要注意：官方没有保证另一个 app-server 产生的流式事件会立即刷新到已经打开的 App 页面。任务会进入共享会话记录，但 App 可能需要返回任务列表后重新打开。
-
-如果任务需要人工审批，扩展也需要提供简单的批准/拒绝提示，或者使用不会弹出审批的配置。
-
-## 为什么不拦截 Cursor 原生聊天框
-
-不建议直接给 Cursor 自带聊天窗口插入“发送到 Codex”按钮，因为：
-
-- Cursor 没有稳定公开的聊天框扩展接口。
-- 普通扩展不能可靠修改 Cursor 私有 UI。
-- 很难取得输入框中的文本和附件。
-- Cursor 更新后容易失效。
-- 可能造成消息同时发送给 Cursor 和 Codex。
-
-因此采用标准 VS Code Webview View 实现自己的极简发送面板，界面可以适配 Cursor，但不显示对话记录。
-
-## Monorepo 架构
-
-项目使用 pnpm workspace 与 Turborepo 管理：
+项目使用 pnpm workspace 与 Turborepo：
 
 ```text
 codex-sender/
-├─ apps/
-│  └─ extension/               # VS Code 兼容扩展，Cursor 复用同一 VSIX
 ├─ packages/
-│  ├─ core/                    # 代码引用、任务绑定和消息组装
-│  └─ app-server-client/       # Codex App Server 进程与 JSONL 通信
-├─ docs/
-│  └─ project.md
+│  ├─ cli/                    # 可发布 npm CLI、补丁安装与恢复
+│  ├─ injector/               # 生成注入到 Cursor 的浏览器脚本
+│  ├─ bridge/                 # localhost API、队列和 Codex CLI 调用
+│  ├─ app-server-client/      # Codex App Server JSONL 客户端
+│  └─ core/                   # 共享状态类型与路径规范化
+├─ docs/project.md
 ├─ pnpm-workspace.yaml
 └─ turbo.json
 ```
 
-依赖方向保持单向：
+依赖方向：
 
 ```text
-codex-sender
-  ├─ @codex-sender/core
-  └─ @codex-sender/app-server-client
+cli → bridge → app-server-client
+ │       └──→ core
+ └──→ injector
 ```
 
-各模块职责如下：
+内部包保持 `private`，发布时由 CLI 构建将工作区依赖打入单一 `dist/cli.mjs`，npm 包不能依赖未发布的 `@codex-sender/*` 包。
 
-- `apps/extension`：扩展激活、命令、代码选区、Webview、`globalState` 和用户交互。
-- `packages/core`：不依赖编辑器或 Node.js 的纯 TypeScript 业务逻辑，负责代码引用与最终消息组装。
-- `packages/app-server-client`：Node.js 环境下启动 `codex app-server`，处理 JSONL 请求、响应、通知、超时和进程退出。
-- 根目录：只负责编排 workspace、Turbo 任务、统一代码规范和 CI，不再作为可发布 npm 包。
+## Cursor 注入方案
 
-第一版不单独拆分 UI、配置或协议包；等出现第二个消费者后再提取，避免空包和过早抽象。
-
-## 开发顺序
-
-第一版先完成核心闭环：
-
-1. 建立 monorepo、共享核心类型和 App Server JSONL 客户端。
-2. VS Code/Cursor 侧边栏发送框。
-3. 复制粘贴生成 `@文件 (行号)` 标签。
-4. 支持多个文件、多个片段。
-5. 创建 Codex 任务并保存 `threadId`。
-6. 将消息发送到 Codex。
-7. 成功、失败和运行中状态提示。
-
-第二版再补充：
-
-- 切换多个 Codex 任务。
-- 代码片段预览、排序和删除。
-- 文件改变后的过期提醒。
-- 消息排队。
-- Codex 审批提示。
-- 自动打开或定位 Codex App 任务——取决于后续是否有稳定的 Windows 深链接口。
-
-最终架构就是：
+安装器定位：
 
 ```text
-VS Code / Cursor 代码选择与复制
-        ↓
-Codex Sender 标准扩展
-  ├─ 多片段上下文
-  ├─ 极简输入框
-  └─ 项目 → threadId 映射
-        ↓
-Codex App Server
-        ↓
-共享 Codex 会话记录
-        ↓
-Codex Windows App 查看完整对话
+resources/app/out/vs/code/electron-sandbox/workbench/workbench.html
 ```
+
+安装流程：
+
+1. 检查 Windows 平台并确认 `Cursor.exe` 已完全退出。
+2. 定位 `resources/app`、`product.json` 和 `workbench.html`。
+3. 按 Cursor 版本与原始 HTML hash 创建版本化备份。
+4. 写入独立的 `codex-sender.inject.js`。
+5. 在 `</html>` 前插入带开始、结束标记的 `<script type="module">`。
+6. 计算修改后 HTML 的 SHA-256 base64，并更新：
+
+   ```text
+   checksums["vs/code/electron-sandbox/workbench/workbench.html"]
+   ```
+
+7. 原子写入安装清单，以便诊断和恢复。
+8. 注册 Windows 登录启动脚本并启动 bridge。
+
+注入是幂等的。重复安装只更新独立脚本，不重复插入标签。缺少安装清单但发现已有标记时停止修改，避免覆盖来源不明的补丁。
+
+卸载优先使用备份完整恢复；如果 Cursor 文件已发生其他变化，则只移除 Codex Sender 标记区并重算 checksum，避免覆盖后续改动。
+
+## Cursor DOM 策略
+
+当前已确认的关键节点：
+
+```text
+.composer-input-wrapper
+.composer-input-container
+.ProseMirror[contenteditable="true"]
+button[aria-label="Send message"]
+```
+
+注入脚本使用 `MutationObserver` 处理聊天面板的动态挂载。每个 composer 只插入一组带版本标记的按钮，避免重复渲染。
+
+这是项目最不稳定的边界。Cursor 更新后如果 selector 改变，`doctor` 只能证明文件注入正常，不能证明按钮一定成功挂载；后续需要增加真实 UI 冒烟测试或 selector 兼容层。
+
+## Localhost bridge
+
+Electron renderer 不直接拥有可靠、安全的 Node.js 子进程能力，因此注入脚本通过 bridge 间接调用 Codex CLI。
+
+bridge 只监听 `127.0.0.1`，提供：
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /health` | 版本和存活检查 |
+| `GET /api/threads` | 查询当前工作区历史任务 |
+| `POST /api/send` | 创建排队发送任务 |
+| `POST /api/bind` | 绑定历史任务 |
+| `POST /api/unbind` | 解除绑定，下次新建任务 |
+| `GET /api/jobs/:id` | 查询排队、运行、成功或失败状态 |
+
+安全策略：
+
+- 安装时生成 32 字节随机令牌，所有请求必须携带令牌。
+- Origin 只接受 Cursor 本地 renderer 形态。
+- 请求体限制为 1 MiB，发送文本限制为 500,000 字符。
+- 每个标准化工作区使用独立串行队列，避免同时续接同一任务。
+- 新任务默认使用 `read-only` sandbox。
+- bridge 不监听外网地址，也不提供远程中转服务。
+
+本地状态与备份默认位于：
+
+```text
+%LOCALAPPDATA%\codex-sender
+```
+
+## 生命周期命令
+
+| 命令 | 行为 |
+| --- | --- |
+| `install` | 备份、注入、注册并启动 bridge |
+| `repair` | 使用当前配置重新注入；用于 Cursor 更新后恢复 |
+| `doctor` | 检查注入标记、脚本存在性和 checksum |
+| `serve` | 前台启动 bridge |
+| `uninstall` | 恢复 Cursor 文件并移除登录启动脚本 |
+| `version` | 输出 CLI 版本 |
+
+安装、修复、卸载都必须在 Cursor 完全退出后进行。真实系统安装只能由用户明确执行；自动化测试必须使用临时 Cursor fixture。
+
+## 兼容性与已知限制
+
+- 第一版仅支持 Windows。
+- Cursor 更新会替换安装目录，用户需要重新运行 `repair`。
+- 依赖 Cursor 私有 DOM，不保证跨版本稳定。
+- `doctor` 不启动 Cursor，因此无法验证真实按钮是否挂载。
+- Cursor 安装目录受保护时需要管理员权限。
+- Cursor 中只显示发送状态，不渲染 Codex 回复或审批 UI。
+- 当前同一工作区只保存一个活动任务绑定。
+- 任务必须存在于当前 Codex CLI 能访问的本地 Codex 数据目录中。
+
+## 开发与验证
+
+```powershell
+pnpm install
+pnpm run lint
+pnpm run typecheck
+pnpm run test
+pnpm run build
+```
+
+发布前还需要验证：
+
+1. `pnpm run check` 全部通过。
+2. CLI tarball 只包含 README、package metadata 和自包含的 `dist/cli.mjs`。
+3. 构建产物不保留 `@codex-sender/*` 运行时 import。
+4. 临时 Cursor fixture 能完成安装、`doctor` 和卸载恢复。
+5. 全仓没有旧扩展代码、调试配置或发布产物残留。
+6. 在一个明确关闭的测试用 Cursor 上完成按钮、历史选择与发送闭环的人工冒烟测试。

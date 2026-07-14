@@ -1,0 +1,46 @@
+{
+  "name": "codex-sender",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "为 Cursor 聊天输入框注入发送到 Codex 的按钮。",
+  "author": {
+    "name": "BINGWU2003",
+    "url": "https://github.com/BINGWU2003"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/BINGWU2003/codex-sender#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BINGWU2003/codex-sender.git",
+    "directory": "packages/cli"
+  },
+  "bugs": "https://github.com/BINGWU2003/codex-sender/issues",
+  "keywords": ["cursor", "codex", "cli", "developer-tools"],
+  "exports": {
+    ".": "./dist/cli.mjs"
+  },
+  "bin": {
+    "codex-sender": "./dist/cli.mjs"
+  },
+  "files": ["README.md", "dist"],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "os": ["win32"],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "lint": "eslint .",
+    "prepack": "pnpm --workspace-root turbo run build --filter=codex-sender...",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@codex-sender/bridge": "workspace:*",
+    "@codex-sender/injector": "workspace:*",
+    "@types/node": "catalog:types",
+    "tsdown": "catalog:cli",
+    "typescript": "catalog:cli",
+    "vitest": "catalog:testing"
+  }
+}

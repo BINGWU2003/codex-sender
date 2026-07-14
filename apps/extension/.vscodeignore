@@ -1,6 +1,0 @@
-.turbo/**
-src/**
-tsconfig.json
-tsdown.config.ts
-**/*.map
-**/*.test.*

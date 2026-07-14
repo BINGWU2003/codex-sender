@@ -2,7 +2,6 @@ catalogMode: prefer
 ignoreWorkspaceRootCheck: true
 minimumReleaseAgeExclude:
   - '@types/node@25.9.0'
-  - '@types/vscode@1.100.0'
   - '@turbo/darwin-64@2.10.5'
   - '@turbo/darwin-arm64@2.10.5'
   - '@turbo/linux-64@2.10.5'
@@ -14,7 +13,6 @@ shellEmulator: true
 trustPolicy: no-downgrade
 
 packages:
-  - apps/*
   - packages/*
 
 catalogs:
@@ -31,7 +29,6 @@ catalogs:
     vitest: ^4.1.6
   types:
     '@types/node': ^25.9.0
-    '@types/vscode': 1.100.0
 
 allowBuilds:
   esbuild: true

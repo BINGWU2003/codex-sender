@@ -1,12 +1,11 @@
 import { defineConfig } from 'tsdown'
 
 export default defineConfig({
-  entry: ['src/extension.ts'],
-  format: ['cjs'],
+  entry: ['src/cli.ts'],
+  format: ['esm'],
   platform: 'node',
   deps: {
     alwaysBundle: [/^@codex-sender\//],
-    neverBundle: ['vscode'],
   },
-  outExtensions: () => ({ js: '.cjs' }),
+  outExtensions: () => ({ js: '.mjs' }),
 })

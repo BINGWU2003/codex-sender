@@ -1,42 +1,23 @@
-export interface CodeReference {
-  workspacePath: string
-  relativeFilePath: string
-  languageId: string
-  startLine: number
-  endLine: number
-  selectedText: string
-  documentVersion: number
-}
-
-export interface CodexMessageRequest {
-  question: string
-  references: readonly CodeReference[]
-}
-
 export interface WorkspaceThreadBinding {
   activeThreadId: string
   title: string
+  updatedAt?: string
 }
 
-export function formatCodeReferenceLabel(reference: CodeReference): string {
-  return `@${reference.relativeFilePath} (${reference.startLine}-${reference.endLine})`
+export interface CodexSenderState {
+  version: 1
+  port: number
+  token: string
+  workspaces: Record<string, WorkspaceThreadBinding>
 }
 
-export function buildCodexPrompt(request: CodexMessageRequest): string {
-  const question = request.question.trim()
-  const sections = request.references.map((reference, index) => {
-    const language = reference.languageId || 'text'
+export function normalizeWorkspacePath(workspacePath: string, windows = /^[a-z]:[\\/]/i.test(workspacePath)): string {
+  const withoutTrailingSeparators = workspacePath.replace(/[\\/]+$/, '')
 
-    return [
-      `片段 ${index + 1}`,
-      `文件：${reference.relativeFilePath}`,
-      `行号：${reference.startLine}-${reference.endLine}`,
-      '',
-      `\`\`\`${language}`,
-      reference.selectedText,
-      '\`\`\`',
-    ].join('\n')
-  })
+  if (windows) {
+    const normalized = withoutTrailingSeparators.replaceAll('/', '\\').toLowerCase()
+    return /^[a-z]:$/i.test(normalized) ? `${normalized}\\` : normalized
+  }
 
-  return [question, ...sections].filter(Boolean).join('\n\n')
+  return withoutTrailingSeparators || (workspacePath.startsWith('/') ? '/' : '')
 }
