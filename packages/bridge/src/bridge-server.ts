@@ -1,51 +1,40 @@
 import type { ThreadSourceKind } from '@codex-sender/app-server-client'
-import type { CodexSenderState } from '@codex-sender/core'
+import type { CodexSenderState, DeliveryMode } from '@codex-sender/core'
 import type { Server } from 'node:http'
+import type { LogLevel } from './logger.js'
 import { Buffer } from 'node:buffer'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import { AppServerClient } from '@codex-sender/app-server-client'
-import { CodexCliRunner } from './codex-cli-runner.js'
+import { CodexAppLauncher } from './codex-app-launcher.js'
+import { Logger, summarizeText } from './logger.js'
 import { StateStore } from './state-store.js'
 
 const visibleThreadSources: ThreadSourceKind[] = ['cli', 'vscode', 'exec', 'appServer', 'unknown']
-const jobRetentionMs = 10 * 60 * 1000
-
-export type BridgeJobStatus = 'completed' | 'failed' | 'queued' | 'running'
-
-export interface BridgeJob {
-  id: string
-  cwd: string
-  status: BridgeJobStatus
-  threadId?: string
-  error?: string
-  createdAt: string
-  completedAt?: string
-}
 
 export interface BridgeServerOptions {
   stateStore?: StateStore
-  cliRunner?: CodexCliRunner
+  appLauncher?: CodexAppLauncher
   appServerClient?: AppServerClient
+  logger?: Logger
   version?: string
   port?: number
 }
 
 export class BridgeServer {
   private readonly appServer: AppServerClient
-  private readonly cliRunner: CodexCliRunner
-  private readonly jobs = new Map<string, BridgeJob>()
-  private readonly queues = new Map<string, Promise<void>>()
+  private readonly appLauncher: CodexAppLauncher
+  private readonly logger: Logger
   private readonly stateStore: StateStore
   private readonly version: string
   private server?: Server
   private state?: CodexSenderState
-  private nextJobId = 1
   private requestedPort?: number
 
   constructor(options: BridgeServerOptions = {}) {
     this.stateStore = options.stateStore ?? new StateStore()
-    this.cliRunner = options.cliRunner ?? new CodexCliRunner()
+    this.appLauncher = options.appLauncher ?? new CodexAppLauncher()
+    this.logger = options.logger ?? new Logger({ dataDirectory: this.stateStore.dataDirectory })
     this.appServer = options.appServerClient ?? new AppServerClient()
     this.version = options.version ?? '0.0.0'
     this.requestedPort = options.port
@@ -68,6 +57,7 @@ export class BridgeServer {
     const address = server.address()
     if (!address || typeof address === 'string')
       throw new Error('Bridge 未能获取监听端口')
+    await this.logger.log('info', 'bridge_started', { port: address.port, version: this.version, stateVersion: this.state.version })
     return address.port
   }
 
@@ -78,6 +68,7 @@ export class BridgeServer {
     if (!server)
       return
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    await this.logger.log('info', 'bridge_stopped')
   }
 
   private async handleRequest(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse): Promise<void> {
@@ -102,22 +93,121 @@ export class BridgeServer {
         await this.handleListThreads(url, response)
         return
       }
+      if (request.method === 'POST' && url.pathname === '/api/log') {
+        const body = await readJsonBody(request) as { level?: unknown, event?: unknown, data?: unknown }
+        if (typeof body.event !== 'string' || !body.event.trim() || body.event.length > 120)
+          throw new HttpError(400, '日志事件名称无效')
+        await this.logger.log(requireLogLevel(body.level), body.event, body.data)
+        this.json(response, 200, { ok: true })
+        return
+      }
       if (request.method === 'POST' && url.pathname === '/api/send') {
-        const body = await readJsonBody(request) as { cwd?: unknown, text?: unknown }
+        const body = await readJsonBody(request) as { cwd?: unknown, text?: unknown, mode?: unknown }
         const cwd = requireAbsolutePath(body.cwd)
         const text = requireText(body.text)
-        const job = this.enqueue(cwd, text)
-        this.json(response, 202, { jobId: job.id, status: job.status })
+        const settings = await this.stateStore.getSettings()
+        const mode = body.mode === undefined ? settings.deliveryMode : requireDeliveryMode(body.mode)
+        const binding = await this.stateStore.getBinding(cwd)
+        await this.logger.log('info', 'send_requested', {
+          cwd,
+          mode,
+          hasBinding: Boolean(binding),
+          promptText: text,
+        })
+        const result = await this.appLauncher.deliver({
+          cwd,
+          text,
+          mode,
+          threadId: binding?.activeThreadId,
+        })
+        await this.logDeliveryResult(result)
+        this.json(response, 200, result)
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/copy-cursor-prompt') {
+        const body = await readJsonBody(request) as { fallbackText?: unknown, expectsFileReferences?: unknown }
+        const fallbackText = typeof body.fallbackText === 'string' ? body.fallbackText : ''
+        const expectsFileReferences = body.expectsFileReferences === true
+        let text = await this.appLauncher.copyFocusedCursorPrompt()
+        await this.logger.log('info', 'native_cursor_copy_completed', {
+          expectsFileReferences,
+          clipboardText: text,
+          fallbackText,
+        })
+        if (!text.trim())
+          text = fallbackText
+        if (expectsFileReferences && !text.includes('@')) {
+          await this.logger.log('warn', 'native_cursor_copy_rejected', {
+            clipboard: summarizeText(text),
+            fallback: summarizeText(fallbackText),
+          })
+          throw new HttpError(422, 'Cursor 原生复制结果缺少 @文件路径，已停止交接')
+        }
+        text = requireText(text)
+        this.json(response, 200, { text })
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/send-clipboard') {
+        const body = await readJsonBody(request) as {
+          cwd?: unknown
+          fallbackText?: unknown
+          expectsFileReferences?: unknown
+        }
+        const cwd = requireAbsolutePath(body.cwd)
+        const fallbackText = typeof body.fallbackText === 'string' ? body.fallbackText : ''
+        const expectsFileReferences = body.expectsFileReferences === true
+        let text = await this.appLauncher.readClipboardText()
+        await this.logger.log('info', 'clipboard_read', {
+          cwd,
+          expectsFileReferences,
+          clipboardText: text,
+          fallbackText,
+        })
+        if (!text.trim())
+          text = fallbackText
+        if (expectsFileReferences && !text.includes('@')) {
+          await this.logger.log('warn', 'clipboard_rich_text_rejected', {
+            cwd,
+            clipboard: summarizeText(text),
+            fallback: summarizeText(fallbackText),
+          })
+          throw new HttpError(422, '未能从系统剪贴板读取 @文件路径，已停止交接')
+        }
+        text = requireText(text)
+        const settings = await this.stateStore.getSettings()
+        const binding = await this.stateStore.getBinding(cwd)
+        const result = await this.appLauncher.deliver({
+          cwd,
+          text,
+          mode: settings.deliveryMode,
+          threadId: binding?.activeThreadId,
+        })
+        await this.logDeliveryResult(result)
+        this.json(response, 200, result)
+        return
+      }
+      if (request.method === 'GET' && url.pathname === '/api/settings') {
+        this.json(response, 200, await this.stateStore.getSettings())
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/settings') {
+        const body = await readJsonBody(request) as { deliveryMode?: unknown }
+        const deliveryMode = requireDeliveryMode(body.deliveryMode)
+        await this.stateStore.setDeliveryMode(deliveryMode)
+        await this.logger.log('info', 'delivery_mode_changed', { deliveryMode })
+        this.json(response, 200, { deliveryMode })
         return
       }
       if (request.method === 'POST' && url.pathname === '/api/bind') {
         const body = await readJsonBody(request) as { cwd?: unknown, threadId?: unknown, title?: unknown }
         const cwd = requireAbsolutePath(body.cwd)
-        if (typeof body.threadId !== 'string' || !body.threadId)
-          throw new HttpError(400, 'threadId 无效')
+        const threadId = requireThreadId(body.threadId)
+        const title = typeof body.title === 'string' && body.title.trim()
+          ? body.title.trim().slice(0, 200)
+          : threadId
         await this.stateStore.setBinding(cwd, {
-          activeThreadId: body.threadId,
-          title: typeof body.title === 'string' ? body.title : body.threadId,
+          activeThreadId: threadId,
+          title,
           updatedAt: new Date().toISOString(),
         })
         this.json(response, 200, { ok: true })
@@ -129,19 +219,17 @@ export class BridgeServer {
         this.json(response, 200, { ok: true })
         return
       }
-      if (request.method === 'GET' && url.pathname.startsWith('/api/jobs/')) {
-        const job = this.jobs.get(decodeURIComponent(url.pathname.slice('/api/jobs/'.length)))
-        if (!job)
-          throw new HttpError(404, '发送任务不存在')
-        this.json(response, 200, job)
-        return
-      }
-
       throw new HttpError(404, '接口不存在')
     }
     catch (error) {
       const status = error instanceof HttpError ? error.status : 500
       const message = error instanceof Error ? error.message : String(error)
+      await this.logger.log(status >= 500 ? 'error' : 'warn', 'http_request_failed', {
+        method: request.method,
+        path: request.url,
+        status,
+        error,
+      })
       this.json(response, status, { error: message })
     }
   }
@@ -162,61 +250,9 @@ export class BridgeServer {
       sortDirection: 'desc',
       sourceKinds: visibleThreadSources,
     })
-    this.json(response, 200, result)
-  }
-
-  private enqueue(cwd: string, text: string): BridgeJob {
-    const id = `${Date.now().toString(36)}-${this.nextJobId++}`
-    const job: BridgeJob = {
-      id,
-      cwd,
-      status: 'queued',
-      createdAt: new Date().toISOString(),
-    }
-    this.jobs.set(id, job)
-    const key = path.normalize(cwd).toLowerCase()
-    const previous = this.queues.get(key) ?? Promise.resolve()
-    const current = previous.catch(() => {}).then(() => this.runJob(job, text))
-    const queued = current.finally(() => {
-      if (this.queues.get(key) === queued)
-        this.queues.delete(key)
-    })
-    this.queues.set(key, queued)
-    return job
-  }
-
-  private async runJob(job: BridgeJob, text: string): Promise<void> {
-    job.status = 'running'
-
-    try {
-      const binding = await this.stateStore.getBinding(job.cwd)
-      const result = await this.cliRunner.run({
-        cwd: job.cwd,
-        text,
-        threadId: binding?.activeThreadId,
-        onThreadStarted: async (threadId) => {
-          job.threadId = threadId
-          if (!binding) {
-            await this.stateStore.setBinding(job.cwd, {
-              activeThreadId: threadId,
-              title: text.trim().split(/\r?\n/, 1)[0].slice(0, 80) || 'Codex Sender 任务',
-              updatedAt: new Date().toISOString(),
-            })
-          }
-        },
-      })
-      job.threadId = result.threadId
-      job.status = 'completed'
-    }
-    catch (error) {
-      job.status = 'failed'
-      job.error = error instanceof Error ? error.message : String(error)
-    }
-    finally {
-      job.completedAt = new Date().toISOString()
-      const cleanup = setTimeout(() => this.jobs.delete(job.id), jobRetentionMs)
-      cleanup.unref()
-    }
+    const binding = cwd ? await this.stateStore.getBinding(cwd) : undefined
+    const settings = await this.stateStore.getSettings()
+    this.json(response, 200, { ...result, binding, settings })
   }
 
   private applyCors(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse): void {
@@ -226,6 +262,17 @@ export class BridgeServer {
     response.setHeader('access-control-allow-origin', origin ?? '*')
     response.setHeader('access-control-allow-headers', 'content-type,x-codex-sender-token')
     response.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS')
+  }
+
+  private async logDeliveryResult(result: Awaited<ReturnType<CodexAppLauncher['deliver']>>): Promise<void> {
+    await this.logger.log(result.warning ? 'warn' : 'info', 'delivery_completed', {
+      requestedMode: result.requestedMode,
+      mode: result.mode,
+      threadId: result.threadId,
+      prefilled: result.prefilled,
+      pasted: result.pasted,
+      warning: result.warning,
+    })
   }
 
   private json(response: import('node:http').ServerResponse, status: number, body: unknown): void {
@@ -272,4 +319,22 @@ function requireText(value: unknown): string {
   if (value.length > 500_000)
     throw new HttpError(413, '发送内容过长')
   return value
+}
+
+function requireDeliveryMode(value: unknown): DeliveryMode {
+  if (value !== 'copy' && value !== 'paste')
+    throw new HttpError(400, 'deliveryMode 必须是 copy 或 paste')
+  return value
+}
+
+function requireThreadId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[\w.-]{1,128}$/.test(value))
+    throw new HttpError(400, 'threadId 格式无效')
+  return value
+}
+
+function requireLogLevel(value: unknown): LogLevel {
+  if (value === 'debug' || value === 'error' || value === 'info' || value === 'warn')
+    return value
+  return 'info'
 }

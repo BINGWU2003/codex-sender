@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@11.1.3",
-  "description": "一个通过 npm CLI 为 Cursor 注入 Codex 发送按钮的本地工具。",
+  "description": "一个通过 npm CLI 为 Cursor 注入 Codex App 提示词交接按钮的本地工具。",
   "author": {
     "name": "BINGWU2003",
     "url": "https://github.com/BINGWU2003"

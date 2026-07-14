@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { BridgeServer, StateStore } from '@codex-sender/bridge'
+import { BridgeServer, Logger, StateStore } from '@codex-sender/bridge'
 import { CursorInstaller } from './cursor-installer.js'
 import { registerStartup, removeStartup, startBridgeDetached } from './startup.js'
 
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
     printHelp()
     return
   }
-  if (!['doctor', 'install', 'repair', 'serve', 'uninstall'].includes(command))
+  if (!['doctor', 'install', 'logs', 'repair', 'serve', 'uninstall'].includes(command))
     throw new Error(`未知命令：${command}\n运行 codex-sender help 查看帮助。`)
 
   const cursorPath = readOption(args, '--cursor-path')
@@ -64,6 +65,20 @@ async function main(): Promise<void> {
         process.exitCode = 1
       break
     }
+    case 'logs': {
+      const logger = new Logger({ dataDirectory: stateStore.dataDirectory })
+      const lines = readPositiveIntegerOption(args, '--lines') ?? 100
+      try {
+        const content = await readFile(logger.logPath, 'utf8')
+        console.log(content.trimEnd().split(/\r?\n/).slice(-lines).join('\n'))
+      }
+      catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT'))
+          throw error
+        console.log(`尚未生成日志：${logger.logPath}`)
+      }
+      break
+    }
     case 'serve': {
       const state = await stateStore.load()
       if (port && state.port !== port)
@@ -102,6 +117,16 @@ function readNumberOption(args: string[], name: string): number | undefined {
   return parsed
 }
 
+function readPositiveIntegerOption(args: string[], name: string): number | undefined {
+  const value = readOption(args, name)
+  if (value === undefined)
+    return undefined
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10_000)
+    throw new Error(`${name} 必须是 1-10000 之间的整数`)
+  return parsed
+}
+
 function printHelp(): void {
   console.log(`Codex Sender ${version}
 
@@ -109,6 +134,7 @@ function printHelp(): void {
   codex-sender install [--cursor-path PATH] [--port PORT] [--no-startup]
   codex-sender repair [--cursor-path PATH] [--port PORT] [--no-startup]
   codex-sender doctor [--cursor-path PATH]
+  codex-sender logs [--lines COUNT]
   codex-sender serve [--port PORT]
   codex-sender uninstall
   codex-sender version

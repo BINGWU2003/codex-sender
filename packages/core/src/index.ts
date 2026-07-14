@@ -4,10 +4,17 @@ export interface WorkspaceThreadBinding {
   updatedAt?: string
 }
 
+export type DeliveryMode = 'copy' | 'paste'
+
+export interface CodexSenderSettings {
+  deliveryMode: DeliveryMode
+}
+
 export interface CodexSenderState {
-  version: 1
+  version: 2
   port: number
   token: string
+  settings: CodexSenderSettings
   workspaces: Record<string, WorkspaceThreadBinding>
 }
 

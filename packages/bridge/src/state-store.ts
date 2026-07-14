@@ -1,4 +1,4 @@
-import type { CodexSenderState, WorkspaceThreadBinding } from '@codex-sender/core'
+import type { CodexSenderSettings, CodexSenderState, DeliveryMode, WorkspaceThreadBinding } from '@codex-sender/core'
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -31,8 +31,10 @@ export class StateStore {
       return this.state
 
     try {
-      const parsed = JSON.parse(await readFile(this.statePath, 'utf8')) as CodexSenderState
+      const parsed = JSON.parse(await readFile(this.statePath, 'utf8')) as { version?: number }
       this.state = validateState(parsed)
+      if (parsed.version !== this.state.version)
+        await this.save()
     }
     catch (error) {
       if (!isMissingFileError(error))
@@ -48,6 +50,10 @@ export class StateStore {
     return (await this.load()).workspaces[normalizeWorkspacePath(cwd)]
   }
 
+  async getSettings(): Promise<CodexSenderSettings> {
+    return (await this.load()).settings
+  }
+
   async setBinding(cwd: string, binding: WorkspaceThreadBinding): Promise<void> {
     const state = await this.load()
     state.workspaces[normalizeWorkspacePath(cwd)] = binding
@@ -57,6 +63,12 @@ export class StateStore {
   async removeBinding(cwd: string): Promise<void> {
     const state = await this.load()
     delete state.workspaces[normalizeWorkspacePath(cwd)]
+    await this.save()
+  }
+
+  async setDeliveryMode(deliveryMode: DeliveryMode): Promise<void> {
+    const state = await this.load()
+    state.settings.deliveryMode = deliveryMode
     await this.save()
   }
 
@@ -91,16 +103,27 @@ export function getDefaultDataDirectory(): string {
 
 function createDefaultState(port: number): CodexSenderState {
   return {
-    version: 1,
+    version: 2,
     port,
     token: randomBytes(32).toString('hex'),
+    settings: { deliveryMode: 'copy' },
     workspaces: {},
   }
 }
 
-function validateState(state: CodexSenderState): CodexSenderState {
-  if (state.version !== 1
-    || !isValidPort(state.port)
+function validateState(value: unknown): CodexSenderState {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('codex-sender state.json 格式无效')
+
+  const state = value as {
+    version?: number
+    port?: number
+    token?: string
+    settings?: Partial<CodexSenderSettings>
+    workspaces?: Record<string, WorkspaceThreadBinding>
+  }
+  if ((state.version !== 1 && state.version !== 2)
+    || !isValidPort(state.port ?? 0)
     || typeof state.token !== 'string'
     || !/^[a-f\d]{64}$/i.test(state.token)
     || !state.workspaces
@@ -108,7 +131,18 @@ function validateState(state: CodexSenderState): CodexSenderState {
     || Array.isArray(state.workspaces)) {
     throw new Error('codex-sender state.json 格式无效')
   }
-  return state
+
+  const deliveryMode = state.version === 2 ? state.settings?.deliveryMode : 'copy'
+  if (deliveryMode !== 'copy' && deliveryMode !== 'paste')
+    throw new Error('codex-sender state.json 发送方式无效')
+
+  return {
+    version: 2,
+    port: state.port!,
+    token: state.token,
+    settings: { deliveryMode },
+    workspaces: state.workspaces,
+  }
 }
 
 function isValidPort(port: number): boolean {

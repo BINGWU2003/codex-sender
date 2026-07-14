@@ -1,25 +1,32 @@
 # Codex Sender
 
-通过 npm CLI 在 Cursor 原生聊天输入框旁注入“发送到 Codex”按钮。
+通过 npm CLI 在 Cursor 原生 Agent 输入框旁注入 `Codex` 按钮，把整理好的提示词快速交接到 Codex App。
 
 > [!WARNING]
 > 本工具会备份并修改 Cursor 安装目录中的 `workbench.html` 和 checksum，依赖 Cursor 未公开的 DOM，当前仅支持 Windows。安装、修复和卸载前请完全退出 Cursor。
 
 ## 安装
 
-需要 Node.js 20+、Cursor 桌面版，以及已安装并登录的 Codex CLI。
+需要 Node.js 20+、Cursor、Codex App，以及已安装并登录的 Codex CLI。Codex CLI 只用于读取历史任务，不通过 `codex exec` 发送提示词。
 
 ```powershell
 npm install -g codex-sender
 codex-sender install
 ```
 
-重新打开 Cursor 后，在原生聊天输入框旁点击 `Codex` 即可发送。首次发送创建任务，后续发送续接当前工作区绑定的任务；下拉按钮用于选择历史任务或新建任务。
+重新打开 Cursor 后：
+
+- 点击 `Codex`：读取当前输入框，打开绑定的 Codex App 任务并复制提示词。
+- 点击 `⌄`：选择历史任务、新建任务或启用实验性的自动粘贴。
+- 新任务会通过官方 `codex://threads/new` Deep Link 预填提示词。
+
+工具不会自动按 `Enter`。默认由你检查内容后手动粘贴并发送。
 
 ## 维护
 
 ```powershell
 codex-sender doctor
+codex-sender logs --lines 100
 codex-sender repair
 codex-sender uninstall
 ```
