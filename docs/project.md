@@ -1,4 +1,15 @@
-总体方案是做一个轻量的 Cursor 扩展，名称可以叫 `Codex Sender`。它只负责收集代码片段、输入问题、选择目标 Codex 会话并发送；完整对话仍然在 Codex Windows App 查看。
+# Codex Sender
+
+> 一个将 Cursor 中的代码片段和问题发送到 Codex 任务的轻量扩展。
+
+| 项目信息 | 内容 |
+| --- | --- |
+| 项目名称 | Codex Sender |
+| 作者 | [BINGWU2003](https://github.com/BINGWU2003) |
+| GitHub 仓库 | [BINGWU2003/codex-sender](https://github.com/BINGWU2003/codex-sender) |
+| 许可证 | [MIT](../LICENSE.md) |
+
+总体方案是做一个轻量的 Cursor 扩展，名称为 `Codex Sender`。它只负责收集代码片段、输入问题、选择目标 Codex 会话并发送；完整对话仍然在 Codex Windows App 查看。
 
 ## 最终使用体验
 
@@ -54,13 +65,13 @@ Ctrl+Alt+A       直接加入当前代码选区
 
 ```ts
 interface CodeReference {
-  workspacePath: string;
-  relativeFilePath: string;
-  languageId: string;
-  startLine: number;
-  endLine: number;
-  selectedText: string;
-  documentVersion: number;
+  workspacePath: string
+  relativeFilePath: string
+  languageId: string
+  startLine: number
+  endLine: number
+  selectedText: string
+  documentVersion: number
 }
 ```
 

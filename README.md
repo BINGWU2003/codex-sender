@@ -1,42 +1,30 @@
-# pkg-placeholder
+# Codex Sender
 
-[![npm version][npm-version-src]][npm-version-href]
-[![npm downloads][npm-downloads-src]][npm-downloads-href]
-[![bundle][bundle-src]][bundle-href]
-[![JSDocs][jsdocs-src]][jsdocs-href]
-[![License][license-src]][license-href]
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE.md)
 
-_description_
+一个将 Cursor 中的代码片段和问题发送到 Codex 任务的轻量扩展。
 
-## Note for Developers
+Codex Sender 在 Cursor 侧提供极简发送面板，用于收集一个或多个代码片段、输入问题并选择目标 Codex 任务。消息发送后，完整对话和处理结果仍在 Codex Windows App 中查看。
 
-This starter recommands using [npm Trusted Publisher](https://github.com/e18e/ecosystem-issues/issues/201), where the release is done on CI to ensure the security of the packages.
+## 核心体验
 
-To do so, you need to run `pnpm publish` manually for the very first time to create the package on npm, and then go to `https://www.npmjs.com/package/<your-package-name>/access` to set the connection to your GitHub repo.
+- 从同一文件或不同文件收集多个代码片段。
+- 将代码选区转换为带文件名和行号的引用。
+- 为当前项目创建或切换 Codex 任务。
+- 将问题与代码上下文发送到目标任务。
+- 在 Codex Windows App 中继续查看完整对话。
 
-Then for the future releases, you can run `pnpm run release` to do the release and the GitHub Actions will take care of the release process.
+## 开发状态
 
-## Sponsors
+项目目前处于早期开发阶段，正在实现 Cursor 侧边栏、代码片段收集以及与 Codex App Server 的通信闭环。
 
-<p align="center">
-  <a href="https://cdn.jsdelivr.net/gh/antfu/static/sponsors.svg">
-    <img src="https://cdn.jsdelivr.net/gh/antfu/static/sponsors.svg" alt="Sponsors"/>
-  </a>
-</p>
+完整的产品方案与开发顺序请参阅 [项目文档](./docs/project.md)。
 
-## License
+## 项目地址
 
-[MIT](./LICENSE) License © [Anthony Fu](https://github.com/antfu)
+- GitHub：[BINGWU2003/codex-sender](https://github.com/BINGWU2003/codex-sender)
+- 问题反馈：[GitHub Issues](https://github.com/BINGWU2003/codex-sender/issues)
 
-<!-- Badges -->
+## 许可证
 
-[npm-version-src]: https://img.shields.io/npm/v/pkg-placeholder?style=flat&colorA=080f12&colorB=1fa669
-[npm-version-href]: https://npmx.dev/package/pkg-placeholder
-[npm-downloads-src]: https://img.shields.io/npm/dm/pkg-placeholder?style=flat&colorA=080f12&colorB=1fa669
-[npm-downloads-href]: https://npmx.dev/package/pkg-placeholder
-[bundle-src]: https://img.shields.io/bundlephobia/minzip/pkg-placeholder?style=flat&colorA=080f12&colorB=1fa669&label=minzip
-[bundle-href]: https://bundlephobia.com/result?p=pkg-placeholder
-[license-src]: https://img.shields.io/github/license/antfu/pkg-placeholder.svg?style=flat&colorA=080f12&colorB=1fa669
-[license-href]: https://github.com/antfu/pkg-placeholder/blob/main/LICENSE
-[jsdocs-src]: https://img.shields.io/badge/jsdocs-reference-080f12?style=flat&colorA=080f12&colorB=1fa669
-[jsdocs-href]: https://www.jsdocs.io/package/pkg-placeholder
+[MIT](./LICENSE.md) License © [BINGWU2003](https://github.com/BINGWU2003)

@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025-PRESENT Anthony Fu <https://github.com/antfu>
+Copyright (c) 2026-PRESENT BINGWU2003 <https://github.com/BINGWU2003>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
