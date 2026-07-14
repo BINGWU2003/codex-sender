@@ -29,8 +29,6 @@ catalogs:
   inlined:
     '@antfu/utils': ^9.3.0
   testing:
-    tsdown-stale-guard: ^0.1.2
-    tsnapi: ^0.3.3
     vitest: ^4.1.6
   types:
     '@types/node': ^25.9.0
