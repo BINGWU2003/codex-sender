@@ -15,10 +15,13 @@ function injectedMain(config: InjectionConfig): void {
   const sendButtonSelector = '.composer-bar[data-composer-location="pane"] button'
   const apiBase = `http://127.0.0.1:${config.port}`
   let picker: HTMLElement | undefined
+  let pickerTrigger: HTMLButtonElement | undefined
 
   addStyles()
   mountButtons()
   new MutationObserver(mountButtons).observe(document.body, { childList: true, subtree: true })
+  document.addEventListener('pointerdown', handleDocumentPointerDown, true)
+  document.addEventListener('keydown', handleDocumentKeyDown, true)
 
   function addStyles(): void {
     if (document.querySelector('style[data-codex-sender-style]'))
@@ -207,9 +210,10 @@ function injectedMain(config: InjectionConfig): void {
   async function openThreadPicker(event: MouseEvent, composer: HTMLElement, button: HTMLButtonElement): Promise<void> {
     event.preventDefault()
     event.stopPropagation()
-    picker?.remove()
+    closePicker()
 
     picker = document.createElement('div')
+    pickerTrigger = button
     picker.dataset.codexSenderPopover = ''
     picker.textContent = '正在加载 Codex 历史任务…'
     document.body.append(picker)
@@ -238,6 +242,25 @@ function injectedMain(config: InjectionConfig): void {
       return
 
     picker.replaceChildren()
+    const modeHeading = document.createElement('div')
+    modeHeading.dataset.codexSenderHeading = ''
+    modeHeading.textContent = '提示词交接方式'
+    picker.append(modeHeading)
+
+    const copyMode = createPickerItem(`${result.settings.deliveryMode === 'copy' ? '✓ ' : ''}打开并复制（推荐）`, '打开任务后由你按 Ctrl+V，再确认发送')
+    copyMode.dataset.active = String(result.settings.deliveryMode === 'copy')
+    copyMode.addEventListener('click', () => void updateSettings('copy', composer))
+    picker.append(copyMode)
+
+    const pasteMode = createPickerItem(`${result.settings.deliveryMode === 'paste' ? '✓ ' : ''}打开并自动粘贴（实验）`, '使用 Windows 辅助功能定位输入框；仍由你按 Enter')
+    pasteMode.dataset.active = String(result.settings.deliveryMode === 'paste')
+    pasteMode.addEventListener('click', () => void updateSettings('paste', composer))
+    picker.append(pasteMode)
+
+    const divider = document.createElement('div')
+    divider.dataset.codexSenderDivider = ''
+    picker.append(divider)
+
     const heading = document.createElement('div')
     heading.dataset.codexSenderHeading = ''
     heading.textContent = result.binding ? `当前任务：${result.binding.title}` : '当前任务：新建 Codex 任务'
@@ -268,25 +291,6 @@ function injectedMain(config: InjectionConfig): void {
       empty.textContent = '没有找到历史任务'
       picker.append(empty)
     }
-
-    const divider = document.createElement('div')
-    divider.dataset.codexSenderDivider = ''
-    picker.append(divider)
-
-    const modeHeading = document.createElement('div')
-    modeHeading.dataset.codexSenderHeading = ''
-    modeHeading.textContent = '历史任务的提示词交接方式'
-    picker.append(modeHeading)
-
-    const copyMode = createPickerItem(`${result.settings.deliveryMode === 'copy' ? '✓ ' : ''}打开并复制（推荐）`, '打开任务后由你按 Ctrl+V，再确认发送')
-    copyMode.dataset.active = String(result.settings.deliveryMode === 'copy')
-    copyMode.addEventListener('click', () => void updateSettings('copy', cwd, composer))
-    picker.append(copyMode)
-
-    const pasteMode = createPickerItem(`${result.settings.deliveryMode === 'paste' ? '✓ ' : ''}打开并自动粘贴（实验）`, '使用 Windows 辅助功能定位输入框；仍由你按 Enter')
-    pasteMode.dataset.active = String(result.settings.deliveryMode === 'paste')
-    pasteMode.addEventListener('click', () => void updateSettings('paste', cwd, composer))
-    picker.append(pasteMode)
   }
 
   function createPickerItem(title: string, detail: string): HTMLButtonElement {
@@ -304,9 +308,9 @@ function injectedMain(config: InjectionConfig): void {
   async function updateBinding(endpoint: string, value: object, composer: HTMLElement): Promise<void> {
     try {
       await request(endpoint, { method: 'POST', body: JSON.stringify(value) })
-      picker?.remove()
-      picker = undefined
-      composer.querySelector<HTMLButtonElement>('[data-codex-sender-picker-button]')?.focus()
+      const trigger = pickerTrigger ?? composer.querySelector<HTMLButtonElement>('[data-codex-sender-picker-button]') ?? undefined
+      closePicker()
+      trigger?.focus()
     }
     catch (error) {
       if (picker)
@@ -314,20 +318,46 @@ function injectedMain(config: InjectionConfig): void {
     }
   }
 
-  async function updateSettings(deliveryMode: 'copy' | 'paste', cwd: string, composer: HTMLElement): Promise<void> {
+  async function updateSettings(deliveryMode: 'copy' | 'paste', composer: HTMLElement): Promise<void> {
     try {
       await request('/api/settings', {
         method: 'POST',
         body: JSON.stringify({ deliveryMode }),
       })
-      const pickerButton = composer.querySelector<HTMLButtonElement>('[data-codex-sender-picker-button]')
-      if (pickerButton)
-        await openThreadPicker(new MouseEvent('click'), composer, pickerButton)
+      const trigger = pickerTrigger ?? composer.querySelector<HTMLButtonElement>('[data-codex-sender-picker-button]') ?? undefined
+      closePicker()
+      trigger?.focus()
     }
     catch (error) {
       if (picker)
         picker.textContent = getErrorMessage(error)
     }
+  }
+
+  function handleDocumentPointerDown(event: PointerEvent): void {
+    const target = event.target
+    if (!picker || !(target instanceof Node) || picker.contains(target))
+      return
+    if (target instanceof Element && target.closest('[data-codex-sender-picker-button]'))
+      return
+    closePicker()
+  }
+
+  function handleDocumentKeyDown(event: KeyboardEvent): void {
+    if (!picker || event.key !== 'Escape')
+      return
+    event.preventDefault()
+    event.stopPropagation()
+    closePicker(true)
+  }
+
+  function closePicker(returnFocus = false): void {
+    const trigger = pickerTrigger
+    picker?.remove()
+    picker = undefined
+    pickerTrigger = undefined
+    if (returnFocus)
+      trigger?.focus()
   }
 
   function positionPicker(button: HTMLElement): void {
