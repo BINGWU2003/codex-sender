@@ -1,5 +1,11 @@
 # @codex-sender/cli
 
+## 0.2.3
+
+### Patch Changes
+
+- [`1982356`](https://github.com/BINGWU2003/codex-sender/commit/1982356439c460e1d4775d75a423ce444b7be1ce) Thanks [@BINGWU2003](https://github.com/BINGWU2003)! - 兼容 Cursor 3.7.42 的 Agent 输入框结构，并以模式选择器为锚点将 Codex 按钮稳定放在其右侧。
+
 ## 0.2.2
 
 ### Patch Changes
