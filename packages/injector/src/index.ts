@@ -100,6 +100,7 @@ function injectedMain(config: InjectionConfig): void {
     let restoreEditorState: (() => void) | undefined
 
     try {
+      await ensureBridgeVersion()
       setButtonState(button, 'sending', '正在读取 Cursor 输入框…')
       const editor = composer.querySelector<HTMLElement>(editorSelector)
       if (!editor)
@@ -220,6 +221,7 @@ function injectedMain(config: InjectionConfig): void {
     positionPicker(button)
 
     try {
+      await ensureBridgeVersion()
       const cwd = await getWorkspacePath()
       const result = await request(`/api/threads?cwd=${encodeURIComponent(cwd)}`) as {
         data: Array<{ id: string, name: string | null, preview: string, cwd: string, source: unknown, updatedAt: number }>
@@ -407,6 +409,14 @@ function injectedMain(config: InjectionConfig): void {
       return uri.path
     const withoutLeadingSlash = /^\/[a-z]:\//i.test(uri.path) ? uri.path.slice(1) : uri.path
     return withoutLeadingSlash.replaceAll('/', '\\')
+  }
+
+  async function ensureBridgeVersion(): Promise<void> {
+    const health = await request('/health') as { version?: unknown }
+    if (health.version !== config.version) {
+      const bridgeVersion = typeof health.version === 'string' ? health.version : '未知'
+      throw new Error(`Bridge 版本 ${bridgeVersion} 与注入脚本 ${config.version} 不一致，请重启 Bridge 后重试`)
+    }
   }
 
   async function request(path: string, init: RequestInit = {}): Promise<unknown> {

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BridgeServer, Logger, StateStore } from '@codex-sender/bridge'
+import { checkBridgeHealth } from './bridge-health.js'
 import { CursorInstaller } from './cursor-installer.js'
 import { runInstallWizard, shouldRunInstallWizard, suggestCursorPath } from './install-wizard.js'
 import { readPackageVersion } from './package-info.js'
@@ -102,13 +103,28 @@ async function main(): Promise<void> {
       break
     }
     case 'doctor': {
+      const state = await stateStore.load()
       const installer = new CursorInstaller({
         dataDirectory: stateStore.dataDirectory,
         cursorPath: requestedCursorPath,
       })
       const report = await installer.doctor()
-      console.log(JSON.stringify(report, null, 2))
-      if (!report.ok)
+      const bridge = await checkBridgeHealth({
+        expectedVersion: version,
+        port: state.port,
+        token: state.token,
+      })
+      const problems = bridge.problem ? [...report.problems, bridge.problem] : report.problems
+      const completeReport = {
+        ...report,
+        ok: report.ok && bridge.versionMatches,
+        bridgeRunning: bridge.running,
+        bridgeVersion: bridge.version,
+        bridgeVersionMatches: bridge.versionMatches,
+        problems,
+      }
+      console.log(JSON.stringify(completeReport, null, 2))
+      if (!completeReport.ok)
         process.exitCode = 1
       break
     }
