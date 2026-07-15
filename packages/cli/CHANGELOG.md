@@ -1,5 +1,11 @@
 # @codex-sender/cli
 
+## 0.2.2
+
+### Patch Changes
+
+- [`e1440b5`](https://github.com/BINGWU2003/codex-sender/commit/e1440b517ac20ca236911aa66675d2d2edb4914e) Thanks [@BINGWU2003](https://github.com/BINGWU2003)! - 完善 npm 包的安装、命令参数、Bridge 生命周期、版本升级、故障排查和卸载说明。
+
 ## 0.2.1
 
 ### Patch Changes
