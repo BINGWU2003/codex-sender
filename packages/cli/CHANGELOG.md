@@ -1,5 +1,11 @@
 # @codex-sender/cli
 
+## 0.4.0
+
+### Minor Changes
+
+- [#9](https://github.com/BINGWU2003/codex-sender/pull/9) [`d59b31d`](https://github.com/BINGWU2003/codex-sender/commit/d59b31dfa27fc8b4f5865c567e151b09b4ed2af3) Thanks [@BINGWU2003](https://github.com/BINGWU2003)! - 新增“成功交接后清空 Cursor 输入框”全局开关。开启后会在跳转到 Codex 前再次核对完整提示词，仅在内容一致时通过 `Ctrl+A`、`Delete` 安全清空；焦点或内容校验失败时保留原提示词并继续交接。同时优化任务下拉弹窗的视口碰撞定位，默认直接展示任务列表，将低频交接设置拆分为独立视图，并仅让历史线程列表滚动。
+
 ## 0.3.0
 
 ### Minor Changes
