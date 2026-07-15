@@ -9,9 +9,6 @@ Codex Sender 不执行提示词，也不是 VS Code/Cursor 扩展。它读取 Cu
 > [!WARNING]
 > 这是一个早期实验性工具。它会备份并修改 Cursor 安装目录中的 `workbench.html`，且依赖 Cursor 未公开的 DOM。Cursor 更新可能覆盖或破坏注入；修改安装文件也可能触发完整性检查。
 
-> [!NOTE]
-> 当前 `0.1.0` 尚未发布到 npm registry。发布前请按“从源码试用”安装。
-
 ## 使用体验
 
 默认的安全流程：

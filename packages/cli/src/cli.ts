@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { BridgeServer, Logger, StateStore } from '@codex-sender/bridge'
 import { CursorInstaller } from './cursor-installer.js'
 import { runInstallWizard, shouldRunInstallWizard, suggestCursorPath } from './install-wizard.js'
+import { readPackageVersion } from './package-info.js'
 import { registerStartup, removeStartup, startBridgeDetached } from './startup.js'
 
-const version = '0.1.0'
+const version = await readPackageVersion()
 
 void main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error))
