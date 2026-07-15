@@ -189,6 +189,8 @@ interface DeliveryRequest {
 
 新任务在 URL 长度允许时通过 `prompt` 预填；历史任务打开后按配置选择手动粘贴、自动粘贴或自动粘贴并发送。
 
+用户还可以独立启用“成功交接后清空 Cursor 输入框”。该设置默认关闭；开启后，Bridge 会在 Cursor 仍持有输入焦点时再次执行原生全选和复制，并将结果与本次已验证的提示词逐字比较。只有内容完全一致时才发送 `Delete`，随后打开 Codex App；不一致或焦点变化时保留原提示词并返回警告。
+
 自动粘贴的保护条件：
 
 - 只检查进程名为 Codex 或 ChatGPT 的顶层窗口。
@@ -207,7 +209,7 @@ Electron renderer 通过只监听本机的 Bridge 调用系统能力：
 | `GET /health` | 版本和存活检查 |
 | `GET /api/threads` | 查询历史任务，同时返回当前绑定和发送设置 |
 | `POST /api/send` | 立即执行 Codex App 交接并返回结果 |
-| `POST /api/copy-cursor-prompt` | 验证 Cursor 焦点后执行原生 `Ctrl+A`、`Ctrl+C` 并返回序列化文本 |
+| `POST /api/copy-cursor-prompt` | 验证 Cursor 焦点后执行原生 `Ctrl+A`、`Ctrl+C`；按设置安全清空源输入框并返回序列化文本 |
 | `POST /api/send-clipboard` | 从 Windows 系统剪贴板读取 Cursor 原生复制结果并交接 |
 | `POST /api/bind` | 绑定历史任务 |
 | `POST /api/unbind` | 解除绑定，下次新建任务 |

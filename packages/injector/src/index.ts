@@ -4,16 +4,58 @@ export interface InjectionConfig {
   version: string
 }
 
-export function createInjectionScript(config: InjectionConfig): string {
-  return `;(${injectedMain.toString()})(${JSON.stringify(config)});\n`
+export interface PickerPlacementInput {
+  anchorBottom: number
+  anchorRight: number
+  anchorTop: number
+  desiredHeight: number
+  desiredWidth: number
+  gap: number
+  margin: number
+  viewportHeight: number
+  viewportWidth: number
 }
 
-function injectedMain(config: InjectionConfig): void {
+export interface PickerPlacement {
+  height: number
+  left: number
+  placement: 'bottom' | 'top'
+  top: number
+  width: number
+}
+
+export function calculatePickerPlacement(input: PickerPlacementInput): PickerPlacement {
+  const maximumViewportHeight = Math.max(0, input.viewportHeight - input.margin * 2)
+  const maximumViewportWidth = Math.max(0, input.viewportWidth - input.margin * 2)
+  const desiredHeight = Math.min(input.desiredHeight, maximumViewportHeight)
+  const heightBelow = Math.max(0, input.viewportHeight - input.margin - input.anchorBottom - input.gap)
+  const heightAbove = Math.max(0, input.anchorTop - input.gap - input.margin)
+  const placement = heightBelow >= desiredHeight || heightBelow >= heightAbove ? 'bottom' : 'top'
+  const availableHeight = placement === 'bottom' ? heightBelow : heightAbove
+  const height = Math.min(desiredHeight, availableHeight)
+  const width = Math.min(input.desiredWidth, maximumViewportWidth)
+  const maximumLeft = Math.max(input.margin, input.viewportWidth - input.margin - width)
+  const left = Math.min(Math.max(input.anchorRight - width, input.margin), maximumLeft)
+  const rawTop = placement === 'bottom'
+    ? input.anchorBottom + input.gap
+    : input.anchorTop - input.gap - height
+  const maximumTop = Math.max(input.margin, input.viewportHeight - input.margin - height)
+  const top = Math.min(Math.max(rawTop, input.margin), maximumTop)
+
+  return { height, left, placement, top, width }
+}
+
+export function createInjectionScript(config: InjectionConfig): string {
+  return `;(${injectedMain.toString()})(${JSON.stringify(config)}, ${calculatePickerPlacement.toString()});\n`
+}
+
+function injectedMain(config: InjectionConfig, calculatePlacement: typeof calculatePickerPlacement): void {
   const markerAttribute = 'data-codex-sender'
   const editorSelector = '.aislash-editor-input[contenteditable="true"]'
   const modePickerSelector = '.composer-unified-dropdown[data-mode]'
   const apiBase = `http://127.0.0.1:${config.port}`
   let picker: HTMLElement | undefined
+  let pickerPositionFrame: number | undefined
   let pickerTrigger: HTMLButtonElement | undefined
 
   addStyles()
@@ -21,6 +63,8 @@ function injectedMain(config: InjectionConfig): void {
   new MutationObserver(mountButtons).observe(document.body, { childList: true, subtree: true })
   document.addEventListener('pointerdown', handleDocumentPointerDown, true)
   document.addEventListener('keydown', handleDocumentKeyDown, true)
+  document.addEventListener('scroll', handleDocumentScroll, true)
+  window.addEventListener('resize', schedulePickerPosition)
 
   function addStyles(): void {
     if (document.querySelector('style[data-codex-sender-style]'))
@@ -32,13 +76,25 @@ function injectedMain(config: InjectionConfig): void {
       [data-codex-sender-group] { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-right: 4px; }
       [data-codex-sender-button], [data-codex-sender-picker-button] { box-sizing: border-box; width: auto !important; height: 24px; border: 0; border-radius: 6px; cursor: pointer; }
       [data-codex-sender-button] { min-width: 48px !important; padding: 0 7px !important; color: var(--vscode-button-foreground, #fff) !important; background: var(--vscode-button-background, #0e639c) !important; font-weight: 600; }
-      [data-codex-sender-picker-button] { min-width: 20px !important; padding: 0 4px !important; color: var(--vscode-foreground) !important; background: transparent !important; }
+      [data-codex-sender-picker-button] { display: inline-flex; width: 24px !important; min-width: 24px !important; padding: 0 !important; align-items: center; justify-content: center; color: var(--vscode-foreground) !important; background: transparent !important; }
+      [data-codex-sender-picker-button] svg { display: block; width: 14px; height: 14px; pointer-events: none; }
       [data-codex-sender-button]:hover { background: var(--vscode-button-hoverBackground, #1177bb) !important; }
       [data-codex-sender-picker-button]:hover { background: var(--vscode-toolbar-hoverBackground, rgba(90,93,94,.31)) !important; }
       [data-codex-sender-state="sending"] { opacity: .65; }
       [data-codex-sender-state="success"] { color: var(--vscode-testing-iconPassed, #4caf50) !important; }
       [data-codex-sender-state="error"] { color: var(--vscode-testing-iconFailed, #f44336) !important; }
-      [data-codex-sender-popover] { position: fixed; z-index: 100000; width: 340px; max-height: 420px; overflow: auto; padding: 8px; color: var(--vscode-foreground); background: var(--vscode-menu-background, #252526); border: 1px solid var(--vscode-menu-border, #454545); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font: 12px var(--vscode-font-family); }
+      [data-codex-sender-popover] { position: fixed; z-index: 100000; box-sizing: border-box; display: flex; width: 340px; height: 420px; overflow: hidden; padding: 8px; flex-direction: column; color: var(--vscode-foreground); background: var(--vscode-menu-background, #252526); border: 1px solid var(--vscode-menu-border, #454545); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font: 12px var(--vscode-font-family); }
+      [data-codex-sender-view-header] { display: flex; min-height: 32px; padding: 0 4px 6px; flex: 0 0 auto; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--vscode-menu-separatorBackground, #454545); }
+      [data-codex-sender-view-title] { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+      [data-codex-sender-view-switch], [data-codex-sender-new-task] { padding: 4px 7px; color: var(--vscode-textLink-foreground, #3794ff); background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+      [data-codex-sender-view-switch]:hover, [data-codex-sender-new-task]:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
+      [data-codex-sender-task-view], [data-codex-sender-settings-view] { min-height: 0; flex: 1 1 auto; }
+      [data-codex-sender-task-view] { display: flex; flex-direction: column; }
+      [data-codex-sender-settings-view] { overflow-y: auto; overscroll-behavior: contain; }
+      [data-codex-sender-task-view][hidden], [data-codex-sender-settings-view][hidden] { display: none !important; }
+      [data-codex-sender-task-toolbar] { display: flex; min-height: 38px; padding: 4px 4px 4px 8px; flex: 0 0 auto; align-items: center; gap: 8px; }
+      [data-codex-sender-current-task] { min-width: 0; overflow: hidden; flex: 1 1 auto; opacity: .75; text-overflow: ellipsis; white-space: nowrap; }
+      [data-codex-sender-thread-list] { min-height: 0; overflow-y: auto; flex: 1 1 auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
       [data-codex-sender-item] { display: block; width: 100%; padding: 8px; color: inherit; background: transparent; border: 0; border-radius: 4px; text-align: left; cursor: pointer; }
       [data-codex-sender-item]:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
       [data-codex-sender-item][data-active="true"] { color: var(--vscode-testing-iconPassed, #4caf50); }
@@ -65,8 +121,9 @@ function injectedMain(config: InjectionConfig): void {
       sendButton.dataset.codexSenderButton = ''
       sendButton.addEventListener('click', event => void sendToCodex(event, editor, sendButton))
 
-      const pickerButton = createToolbarButton('⌄', '选择 Codex 任务')
+      const pickerButton = createToolbarButton('', '选择 Codex 任务')
       pickerButton.dataset.codexSenderPickerButton = ''
+      pickerButton.append(createChevronDownIcon())
       pickerButton.addEventListener('click', event => void openThreadPicker(event, pickerButton))
 
       group.append(sendButton, pickerButton)
@@ -93,10 +150,28 @@ function injectedMain(config: InjectionConfig): void {
     return button
   }
 
+  function createChevronDownIcon(): SVGSVGElement {
+    const namespace = 'http://www.w3.org/2000/svg'
+    const icon = document.createElementNS(namespace, 'svg')
+    icon.setAttribute('viewBox', '0 0 16 16')
+    icon.setAttribute('aria-hidden', 'true')
+    icon.setAttribute('focusable', 'false')
+
+    const path = document.createElementNS(namespace, 'path')
+    path.setAttribute('d', 'M4 6.5 8 10l4-3.5')
+    path.setAttribute('fill', 'none')
+    path.setAttribute('stroke', 'currentColor')
+    path.setAttribute('stroke-width', '1.5')
+    path.setAttribute('stroke-linecap', 'round')
+    path.setAttribute('stroke-linejoin', 'round')
+    icon.append(path)
+    return icon
+  }
+
   async function sendToCodex(event: Event, editor: HTMLElement, button: HTMLButtonElement): Promise<void> {
     event.preventDefault()
     event.stopPropagation()
-    let restoreEditorState: (() => void) | undefined
+    let restoreEditorState: ((restoreSelection?: boolean) => void) | undefined
 
     try {
       await ensureBridgeVersion()
@@ -113,8 +188,8 @@ function injectedMain(config: InjectionConfig): void {
           fallbackText: prepared.fallbackText,
           expectsFileReferences: prepared.expectsFileReferences,
         }),
-      }) as { text: string }
-      restoreEditorState()
+      }) as { sourceCleared: boolean, text: string, warning?: string }
+      restoreEditorState(!copyResult.sourceCleared)
       restoreEditorState = undefined
 
       const cwd = await getWorkspacePath()
@@ -122,7 +197,14 @@ function injectedMain(config: InjectionConfig): void {
         method: 'POST',
         body: JSON.stringify({ cwd, text: copyResult.text }),
       }) as { message: string, warning?: string }
-      setButtonState(button, 'success', result.warning ? `${result.message}；${result.warning}` : result.message)
+      const notices = [result.message]
+      if (copyResult.sourceCleared)
+        notices.push('Cursor 输入框已清空')
+      if (copyResult.warning)
+        notices.push(copyResult.warning)
+      if (result.warning)
+        notices.push(result.warning)
+      setButtonState(button, 'success', notices.join('；'))
     }
     catch (error) {
       setButtonState(button, 'error', getErrorMessage(error))
@@ -137,7 +219,7 @@ function injectedMain(config: InjectionConfig): void {
     diagnostics: object
     expectsFileReferences: boolean
     fallbackText: string
-    restore: () => void
+    restore: (restoreSelection?: boolean) => void
   } {
     const selection = document.getSelection()
     const savedRanges: Range[] = []
@@ -152,8 +234,8 @@ function injectedMain(config: InjectionConfig): void {
 
     editor.focus({ preventScroll: true })
 
-    const restore = (): void => {
-      if (selection) {
+    const restore = (restoreSelection = true): void => {
+      if (restoreSelection && selection) {
         selection.removeAllRanges()
         for (const range of savedRanges)
           selection.addRange(range)
@@ -222,57 +304,65 @@ function injectedMain(config: InjectionConfig): void {
       const result = await request(`/api/threads?cwd=${encodeURIComponent(cwd)}`) as {
         data: Array<{ id: string, name: string | null, preview: string, cwd: string, source: unknown, updatedAt: number }>
         binding?: { activeThreadId: string, title: string }
-        settings: { deliveryMode: 'copy' | 'paste' | 'paste-and-send' }
+        settings: {
+          clearCursorPromptAfterHandoff: boolean
+          deliveryMode: 'copy' | 'paste' | 'paste-and-send'
+        }
       }
       renderThreadPicker(result, cwd)
     }
     catch (error) {
-      picker.textContent = getErrorMessage(error)
+      if (picker) {
+        picker.textContent = getErrorMessage(error)
+        schedulePickerPosition()
+      }
     }
   }
 
   function renderThreadPicker(result: {
     data: Array<{ id: string, name: string | null, preview: string, cwd: string, source: unknown, updatedAt: number }>
     binding?: { activeThreadId: string, title: string }
-    settings: { deliveryMode: 'copy' | 'paste' | 'paste-and-send' }
+    settings: {
+      clearCursorPromptAfterHandoff: boolean
+      deliveryMode: 'copy' | 'paste' | 'paste-and-send'
+    }
   }, cwd: string): void {
     if (!picker)
       return
 
     picker.replaceChildren()
-    const modeHeading = document.createElement('div')
-    modeHeading.dataset.codexSenderHeading = ''
-    modeHeading.textContent = '提示词交接方式'
-    picker.append(modeHeading)
 
-    const copyMode = createPickerItem(`${result.settings.deliveryMode === 'copy' ? '✓ ' : ''}打开并复制（推荐）`, '打开任务后由你按 Ctrl+V，再确认发送')
-    copyMode.dataset.active = String(result.settings.deliveryMode === 'copy')
-    copyMode.addEventListener('click', () => void updateSettings('copy'))
-    picker.append(copyMode)
+    const viewHeader = document.createElement('div')
+    viewHeader.dataset.codexSenderViewHeader = ''
+    const viewTitle = document.createElement('span')
+    viewTitle.dataset.codexSenderViewTitle = ''
+    const viewSwitch = document.createElement('button')
+    viewSwitch.type = 'button'
+    viewSwitch.dataset.codexSenderViewSwitch = ''
+    viewHeader.append(viewTitle, viewSwitch)
+    picker.append(viewHeader)
 
-    const pasteMode = createPickerItem(`${result.settings.deliveryMode === 'paste' ? '✓ ' : ''}打开并自动粘贴（实验）`, '使用 Windows 辅助功能定位输入框；仍由你按 Enter')
-    pasteMode.dataset.active = String(result.settings.deliveryMode === 'paste')
-    pasteMode.addEventListener('click', () => void updateSettings('paste'))
-    picker.append(pasteMode)
+    const taskView = document.createElement('div')
+    taskView.dataset.codexSenderTaskView = ''
+    picker.append(taskView)
 
-    const pasteAndSendMode = createPickerItem(`${result.settings.deliveryMode === 'paste-and-send' ? '✓ ' : ''}打开、自动粘贴并发送（实验）`, '校验粘贴内容后自动按 Enter 发送')
-    pasteAndSendMode.dataset.active = String(result.settings.deliveryMode === 'paste-and-send')
-    pasteAndSendMode.addEventListener('click', () => void updateSettings('paste-and-send'))
-    picker.append(pasteAndSendMode)
-
-    const divider = document.createElement('div')
-    divider.dataset.codexSenderDivider = ''
-    picker.append(divider)
-
-    const heading = document.createElement('div')
-    heading.dataset.codexSenderHeading = ''
-    heading.textContent = result.binding ? `当前任务：${result.binding.title}` : '当前任务：新建 Codex 任务'
-    picker.append(heading)
-
-    const create = createPickerItem(`${result.binding ? '＋' : '✓'} 新建 Codex 任务`, '下次点击 Codex 时打开带预填提示词的新任务')
-    create.dataset.active = String(!result.binding)
+    const taskToolbar = document.createElement('div')
+    taskToolbar.dataset.codexSenderTaskToolbar = ''
+    const currentTask = document.createElement('span')
+    currentTask.dataset.codexSenderCurrentTask = ''
+    currentTask.textContent = result.binding ? `当前：${result.binding.title}` : '当前：新建 Codex 任务'
+    currentTask.title = currentTask.textContent
+    const create = document.createElement('button')
+    create.type = 'button'
+    create.dataset.codexSenderNewTask = ''
+    create.textContent = result.binding ? '＋ 新建' : '✓ 新建'
     create.addEventListener('click', () => void updateBinding('/api/unbind', { cwd }))
-    picker.append(create)
+    taskToolbar.append(currentTask, create)
+    taskView.append(taskToolbar)
+
+    const threadList = document.createElement('div')
+    threadList.dataset.codexSenderThreadList = ''
+    taskView.append(threadList)
 
     for (const thread of result.data) {
       const title = thread.name?.trim() || thread.preview.trim().split(/\r?\n/, 1)[0] || '未命名任务'
@@ -285,15 +375,105 @@ function injectedMain(config: InjectionConfig): void {
         threadId: thread.id,
         title,
       }))
-      picker.append(item)
+      threadList.append(item)
     }
 
     if (result.data.length === 0) {
       const empty = document.createElement('div')
       empty.dataset.codexSenderHeading = ''
       empty.textContent = '没有找到历史任务'
-      picker.append(empty)
+      threadList.append(empty)
     }
+
+    const settingsView = document.createElement('div')
+    settingsView.dataset.codexSenderSettingsView = ''
+    picker.append(settingsView)
+
+    const modeHeading = document.createElement('div')
+    modeHeading.dataset.codexSenderHeading = ''
+    modeHeading.textContent = '提示词交接方式'
+    settingsView.append(modeHeading)
+
+    const copyMode = createPickerItem(`${result.settings.deliveryMode === 'copy' ? '✓ ' : ''}打开并复制（推荐）`, '打开任务后由你按 Ctrl+V，再确认发送')
+    const pasteMode = createPickerItem(`${result.settings.deliveryMode === 'paste' ? '✓ ' : ''}打开并自动粘贴（实验）`, '使用 Windows 辅助功能定位输入框；仍由你按 Enter')
+    const pasteAndSendMode = createPickerItem(`${result.settings.deliveryMode === 'paste-and-send' ? '✓ ' : ''}打开、自动粘贴并发送（实验）`, '校验粘贴内容后自动按 Enter 发送')
+    settingsView.append(copyMode, pasteMode, pasteAndSendMode)
+
+    const deliveryModes = [
+      { item: copyMode, label: '打开并复制（推荐）', mode: 'copy' as const },
+      { item: pasteMode, label: '打开并自动粘贴（实验）', mode: 'paste' as const },
+      { item: pasteAndSendMode, label: '打开、自动粘贴并发送（实验）', mode: 'paste-and-send' as const },
+    ]
+    const refreshDeliveryModes = (): void => {
+      for (const entry of deliveryModes) {
+        const active = result.settings.deliveryMode === entry.mode
+        entry.item.dataset.active = String(active)
+        const title = entry.item.firstElementChild
+        if (title)
+          title.textContent = `${active ? '✓ ' : ''}${entry.label}`
+      }
+    }
+    const selectDeliveryMode = async (mode: 'copy' | 'paste' | 'paste-and-send', item: HTMLButtonElement): Promise<void> => {
+      item.disabled = true
+      const saved = await updateSettings({ deliveryMode: mode })
+      item.disabled = false
+      if (!saved)
+        return
+      result.settings.deliveryMode = mode
+      refreshDeliveryModes()
+    }
+    for (const entry of deliveryModes)
+      entry.item.addEventListener('click', () => void selectDeliveryMode(entry.mode, entry.item))
+    refreshDeliveryModes()
+
+    const deliveryDivider = document.createElement('div')
+    deliveryDivider.dataset.codexSenderDivider = ''
+    settingsView.append(deliveryDivider)
+
+    const postHandoffHeading = document.createElement('div')
+    postHandoffHeading.dataset.codexSenderHeading = ''
+    postHandoffHeading.textContent = '交接后处理'
+    settingsView.append(postHandoffHeading)
+
+    const clearCursorPrompt = createPickerItem(
+      `${result.settings.clearCursorPromptAfterHandoff ? '✓ ' : ''}成功交接后清空 Cursor 输入框`,
+      '清空前再次核对完整提示词，确认一致后按 Ctrl+A、Delete',
+    )
+    settingsView.append(clearCursorPrompt)
+    const refreshClearCursorPrompt = (): void => {
+      const active = result.settings.clearCursorPromptAfterHandoff
+      clearCursorPrompt.dataset.active = String(active)
+      const title = clearCursorPrompt.firstElementChild
+      if (title)
+        title.textContent = `${active ? '✓ ' : ''}成功交接后清空 Cursor 输入框`
+    }
+    clearCursorPrompt.addEventListener('click', () => void (async () => {
+      const enabled = !result.settings.clearCursorPromptAfterHandoff
+      clearCursorPrompt.disabled = true
+      const saved = await updateSettings({ clearCursorPromptAfterHandoff: enabled })
+      clearCursorPrompt.disabled = false
+      if (!saved)
+        return
+      result.settings.clearCursorPromptAfterHandoff = enabled
+      refreshClearCursorPrompt()
+    })())
+    refreshClearCursorPrompt()
+
+    const showView = (view: 'settings' | 'tasks'): void => {
+      const showSettings = view === 'settings'
+      taskView.hidden = showSettings
+      settingsView.hidden = !showSettings
+      viewTitle.textContent = showSettings ? '交接设置' : 'Codex 任务'
+      viewSwitch.textContent = showSettings ? '返回任务' : '交接设置'
+      picker!.dataset.codexSenderActiveView = view
+      schedulePickerPosition()
+    }
+    viewSwitch.addEventListener('click', () => {
+      showView(taskView.hidden ? 'tasks' : 'settings')
+    })
+    showView('tasks')
+
+    schedulePickerPosition()
   }
 
   function createPickerItem(title: string, detail: string): HTMLButtonElement {
@@ -321,19 +501,23 @@ function injectedMain(config: InjectionConfig): void {
     }
   }
 
-  async function updateSettings(deliveryMode: 'copy' | 'paste' | 'paste-and-send'): Promise<void> {
+  async function updateSettings(settings: {
+    clearCursorPromptAfterHandoff?: boolean
+    deliveryMode?: 'copy' | 'paste' | 'paste-and-send'
+  }): Promise<boolean> {
     try {
       await request('/api/settings', {
         method: 'POST',
-        body: JSON.stringify({ deliveryMode }),
+        body: JSON.stringify(settings),
       })
-      const trigger = pickerTrigger
-      closePicker()
-      trigger?.focus()
+      return true
     }
     catch (error) {
-      if (picker)
+      if (picker) {
         picker.textContent = getErrorMessage(error)
+        schedulePickerPosition()
+      }
+      return false
     }
   }
 
@@ -354,8 +538,19 @@ function injectedMain(config: InjectionConfig): void {
     closePicker(true)
   }
 
+  function handleDocumentScroll(event: Event): void {
+    const target = event.target
+    if (picker && target instanceof Node && picker.contains(target))
+      return
+    schedulePickerPosition()
+  }
+
   function closePicker(returnFocus = false): void {
     const trigger = pickerTrigger
+    if (pickerPositionFrame !== undefined) {
+      cancelAnimationFrame(pickerPositionFrame)
+      pickerPositionFrame = undefined
+    }
     picker?.remove()
     picker = undefined
     pickerTrigger = undefined
@@ -367,10 +562,34 @@ function injectedMain(config: InjectionConfig): void {
     if (!picker)
       return
     const rect = button.getBoundingClientRect()
-    picker.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`
-    picker.style.top = `${rect.bottom + 6}px`
+    const layout = calculatePlacement({
+      anchorBottom: rect.bottom,
+      anchorRight: rect.right,
+      anchorTop: rect.top,
+      desiredHeight: 420,
+      desiredWidth: 340,
+      gap: 6,
+      margin: 8,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    })
+    picker.dataset.codexSenderPlacement = layout.placement
+    picker.style.left = `${layout.left}px`
+    picker.style.top = `${layout.top}px`
+    picker.style.width = `${layout.width}px`
+    picker.style.height = `${layout.height}px`
+    picker.style.right = 'auto'
     picker.style.bottom = 'auto'
-    picker.style.maxHeight = `${Math.max(120, window.innerHeight - rect.bottom - 14)}px`
+  }
+
+  function schedulePickerPosition(): void {
+    if (!picker || !pickerTrigger || pickerPositionFrame !== undefined)
+      return
+    pickerPositionFrame = requestAnimationFrame(() => {
+      pickerPositionFrame = undefined
+      if (pickerTrigger)
+        positionPicker(pickerTrigger)
+    })
   }
 
   async function getWorkspacePath(): Promise<string> {

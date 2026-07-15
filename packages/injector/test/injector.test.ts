@@ -1,5 +1,54 @@
 import { describe, expect, it } from 'vitest'
-import { createInjectionScript } from '../src/index.js'
+import { calculatePickerPlacement, createInjectionScript } from '../src/index.js'
+
+describe('picker placement', () => {
+  const baseInput = {
+    anchorBottom: 124,
+    anchorRight: 600,
+    anchorTop: 100,
+    desiredHeight: 420,
+    desiredWidth: 340,
+    gap: 6,
+    margin: 8,
+    viewportHeight: 800,
+    viewportWidth: 800,
+  }
+
+  it('opens below the trigger when the popover fits', () => {
+    expect(calculatePickerPlacement(baseInput)).toEqual({
+      height: 420,
+      left: 260,
+      placement: 'bottom',
+      top: 130,
+      width: 340,
+    })
+  })
+
+  it('flips above the trigger when only the upper side fits', () => {
+    expect(calculatePickerPlacement({
+      ...baseInput,
+      anchorBottom: 674,
+      anchorTop: 650,
+    })).toMatchObject({ height: 420, placement: 'top', top: 224 })
+  })
+
+  it('uses the larger side and reduces height when neither side fits', () => {
+    expect(calculatePickerPlacement({
+      ...baseInput,
+      anchorBottom: 274,
+      anchorTop: 250,
+      viewportHeight: 500,
+    })).toMatchObject({ height: 236, placement: 'top', top: 8 })
+  })
+
+  it('clamps popover width and horizontal position to the viewport', () => {
+    expect(calculatePickerPlacement({
+      ...baseInput,
+      anchorRight: 30,
+      viewportWidth: 300,
+    })).toMatchObject({ left: 8, width: 284 })
+  })
+})
 
 describe('injection script generation', () => {
   it('embeds connection settings and stable Cursor selectors', () => {
@@ -16,7 +65,11 @@ describe('injection script generation', () => {
     expect(normalizedSource).not.toContain('.ui-prompt-input-editor__input')
     expect(normalizedSource).not.toContain('.ProseMirror[contenteditable="true"]')
     expect(source).toContain('picker.style.top')
-    expect(source).toContain('rect.bottom + 6')
+    expect(source).toContain('calculatePlacement')
+    expect(source).toContain('codexSenderPlacement')
+    expect(source).toContain('codexSenderThreadList')
+    expect(source).toContain('overflow-y: auto')
+    expect(source).toContain('schedulePickerPosition')
     expect(source).toContain('/api/settings')
     expect(source).toContain('/health')
     expect(source).toContain('Bridge 版本')
@@ -24,7 +77,18 @@ describe('injection script generation', () => {
     expect(source).toContain('打开并自动粘贴')
     expect(source).toContain('打开、自动粘贴并发送')
     expect(source).toContain('paste-and-send')
-    expect(source.indexOf('打开并复制（推荐）')).toBeLessThan(source.indexOf('新建 Codex 任务'))
+    expect(source).toContain('交接后处理')
+    expect(source).toContain('成功交接后清空 Cursor 输入框')
+    expect(source).toContain('clearCursorPromptAfterHandoff')
+    expect(source).toContain('createChevronDownIcon')
+    expect(source).toContain('M4 6.5 8 10l4-3.5')
+    expect(source).not.toContain('⌄')
+    expect(source).toContain('codexSenderTaskView')
+    expect(source).toContain('codexSenderSettingsView')
+    expect(source).toContain('codexSenderActiveView')
+    expect(source).toContain('交接设置')
+    expect(source).toContain('返回任务')
+    expect(source.indexOf('新建 Codex 任务')).toBeLessThan(source.indexOf('打开并复制（推荐）'))
     expect(source).toContain('pointerdown')
     expect(source).toContain('event.key')
     expect(source).toContain('Escape')

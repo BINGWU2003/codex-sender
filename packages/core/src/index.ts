@@ -7,11 +7,12 @@ export interface WorkspaceThreadBinding {
 export type DeliveryMode = 'copy' | 'paste' | 'paste-and-send'
 
 export interface CodexSenderSettings {
+  clearCursorPromptAfterHandoff: boolean
   deliveryMode: DeliveryMode
 }
 
 export interface CodexSenderState {
-  version: 2
+  version: 3
   port: number
   token: string
   settings: CodexSenderSettings

@@ -74,6 +74,18 @@ export class StateStore {
     await this.save()
   }
 
+  async setClearCursorPromptAfterHandoff(clearCursorPromptAfterHandoff: boolean): Promise<void> {
+    const state = await this.load()
+    state.settings.clearCursorPromptAfterHandoff = clearCursorPromptAfterHandoff
+    await this.save()
+  }
+
+  async setSettings(settings: CodexSenderSettings): Promise<void> {
+    const state = await this.load()
+    state.settings = { ...settings }
+    await this.save()
+  }
+
   async setPort(port: number): Promise<void> {
     if (!isValidPort(port))
       throw new Error('Bridge 端口无效')
@@ -99,10 +111,10 @@ export class StateStore {
 
 function createDefaultState(port: number): CodexSenderState {
   return {
-    version: 2,
+    version: 3,
     port,
     token: randomBytes(32).toString('hex'),
-    settings: { deliveryMode: 'copy' },
+    settings: { clearCursorPromptAfterHandoff: false, deliveryMode: 'copy' },
     workspaces: {},
   }
 }
@@ -118,7 +130,7 @@ function validateState(value: unknown): CodexSenderState {
     settings?: Partial<CodexSenderSettings>
     workspaces?: Record<string, WorkspaceThreadBinding>
   }
-  if ((state.version !== 1 && state.version !== 2)
+  if ((state.version !== 1 && state.version !== 2 && state.version !== 3)
     || !isValidPort(state.port ?? 0)
     || typeof state.token !== 'string'
     || !/^[a-f\d]{64}$/i.test(state.token)
@@ -128,15 +140,20 @@ function validateState(value: unknown): CodexSenderState {
     throw new Error('codex-sender state.json 格式无效')
   }
 
-  const deliveryMode = state.version === 2 ? state.settings?.deliveryMode : 'copy'
+  const deliveryMode = state.version >= 2 ? state.settings?.deliveryMode : 'copy'
   if (deliveryMode !== 'copy' && deliveryMode !== 'paste' && deliveryMode !== 'paste-and-send')
     throw new Error('codex-sender state.json 发送方式无效')
+  const clearCursorPromptAfterHandoff = state.version === 3
+    ? state.settings?.clearCursorPromptAfterHandoff
+    : false
+  if (typeof clearCursorPromptAfterHandoff !== 'boolean')
+    throw new Error('codex-sender state.json 交接后处理设置无效')
 
   return {
-    version: 2,
+    version: 3,
     port: state.port!,
     token: state.token,
-    settings: { deliveryMode },
+    settings: { clearCursorPromptAfterHandoff, deliveryMode },
     workspaces: state.workspaces,
   }
 }
