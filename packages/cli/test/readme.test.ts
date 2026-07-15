@@ -22,6 +22,7 @@ describe('readme command reference', () => {
 
     expect(content).toContain('Bridge 版本')
     expect(content).toContain('自动更新')
+    expect(content).toContain('成功交接后清空 Cursor 输入框')
     expect(content).toContain('Ctrl+C')
     expect(content).toContain('EPERM')
     expect(content).toContain('EADDRINUSE')

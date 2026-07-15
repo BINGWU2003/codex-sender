@@ -15,6 +15,7 @@ afterEach(async () => {
 
 function createFakeSystem(): CodexAppSystem {
   return {
+    clearFocusedCursorPrompt: vi.fn(async (_expectedText: string) => {}),
     copyFocusedCursorPrompt: vi.fn(async () => ''),
     copyAndOpen: vi.fn(async () => {}),
     pasteIntoComposer: vi.fn(async (_text: string, _submit?: boolean) => {}),
@@ -173,8 +174,31 @@ describe('bridge server', () => {
 
     const state = await new StateStore({ dataDirectory }).load()
 
-    expect(state).toMatchObject({ version: 2, settings: { deliveryMode: 'copy' } })
-    expect(JSON.parse(await readFile(statePath, 'utf8'))).toMatchObject({ version: 2 })
+    expect(state).toMatchObject({
+      version: 3,
+      settings: { clearCursorPromptAfterHandoff: false, deliveryMode: 'copy' },
+    })
+    expect(JSON.parse(await readFile(statePath, 'utf8'))).toMatchObject({ version: 3 })
+  })
+
+  it('migrates version 2 state without enabling Cursor prompt clearing', async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), 'codex-sender-state-'))
+    const statePath = path.join(dataDirectory, 'state.json')
+    await mkdir(dataDirectory, { recursive: true })
+    await writeFile(statePath, JSON.stringify({
+      version: 2,
+      port: 47_321,
+      token: 'a'.repeat(64),
+      settings: { deliveryMode: 'paste' },
+      workspaces: {},
+    }))
+
+    const state = await new StateStore({ dataDirectory }).load()
+
+    expect(state).toMatchObject({
+      version: 3,
+      settings: { clearCursorPromptAfterHandoff: false, deliveryMode: 'paste' },
+    })
   })
 
   it('hands a prompt to the bound Codex App task immediately', async () => {
@@ -281,6 +305,8 @@ describe('bridge server', () => {
     const stateStore = new StateStore({ dataDirectory })
     const system = createFakeSystem()
     vi.mocked(system.copyFocusedCursorPrompt).mockResolvedValue('分析 @docker/Dockerfile.app @admin.ts (26-40)')
+    await stateStore.load()
+    await stateStore.setClearCursorPromptAfterHandoff(true)
     const server = new BridgeServer({
       stateStore,
       appLauncher: new CodexAppLauncher({ platform: 'win32', system }),
@@ -301,7 +327,43 @@ describe('bridge server', () => {
     const result = await response.json()
 
     expect(response.status).toBe(200)
-    expect(result).toEqual({ text: '分析 @docker/Dockerfile.app @admin.ts (26-40)' })
+    expect(result).toEqual({
+      sourceCleared: true,
+      text: '分析 @docker/Dockerfile.app @admin.ts (26-40)',
+    })
+    expect(system.clearFocusedCursorPrompt).toHaveBeenCalledWith('分析 @docker/Dockerfile.app @admin.ts (26-40)')
+  })
+
+  it('keeps handing off when Cursor prompt clearing cannot be verified', async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), 'codex-sender-bridge-'))
+    const stateStore = new StateStore({ dataDirectory })
+    const system = createFakeSystem()
+    vi.mocked(system.copyFocusedCursorPrompt).mockResolvedValue('继续处理')
+    vi.mocked(system.clearFocusedCursorPrompt).mockRejectedValueOnce(new Error('当前选中内容不一致'))
+    await stateStore.load()
+    await stateStore.setClearCursorPromptAfterHandoff(true)
+    const server = new BridgeServer({
+      stateStore,
+      appLauncher: new CodexAppLauncher({ platform: 'win32', system }),
+      port: 0,
+    })
+    servers.push(server)
+    const port = await server.start()
+    const state = await stateStore.load()
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/copy-cursor-prompt`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-codex-sender-token': state.token,
+      },
+      body: JSON.stringify({ fallbackText: '继续处理', expectsFileReferences: false }),
+    })
+    const result = await response.json() as { sourceCleared?: boolean, warning?: string }
+
+    expect(response.status).toBe(200)
+    expect(result.sourceCleared).toBe(false)
+    expect(result.warning).toContain('当前选中内容不一致')
   })
 
   it('rejects malformed rich clipboard text instead of sending bare file names', async () => {
@@ -350,7 +412,10 @@ describe('bridge server', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(await stateStore.getSettings()).toEqual({ deliveryMode: 'paste' })
+    expect(await stateStore.getSettings()).toEqual({
+      clearCursorPromptAfterHandoff: false,
+      deliveryMode: 'paste',
+    })
   })
 
   it('persists the guarded paste-and-send setting', async () => {
@@ -371,7 +436,36 @@ describe('bridge server', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(await stateStore.getSettings()).toEqual({ deliveryMode: 'paste-and-send' })
+    expect(await stateStore.getSettings()).toEqual({
+      clearCursorPromptAfterHandoff: false,
+      deliveryMode: 'paste-and-send',
+    })
+  })
+
+  it('persists Cursor prompt clearing independently from the delivery mode', async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), 'codex-sender-bridge-'))
+    const stateStore = new StateStore({ dataDirectory })
+    await stateStore.load()
+    await stateStore.setDeliveryMode('paste')
+    const server = new BridgeServer({ stateStore, port: 0 })
+    servers.push(server)
+    const port = await server.start()
+    const state = await stateStore.load()
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-codex-sender-token': state.token,
+      },
+      body: JSON.stringify({ clearCursorPromptAfterHandoff: true }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await stateStore.getSettings()).toEqual({
+      clearCursorPromptAfterHandoff: true,
+      deliveryMode: 'paste',
+    })
   })
 
   it('returns thread data with the current binding and delivery setting', async () => {
@@ -395,7 +489,7 @@ describe('bridge server', () => {
     expect(result).toMatchObject({
       data: [{ id: '019f-test-thread' }],
       binding: { activeThreadId: '019f-test-thread', title: '测试任务' },
-      settings: { deliveryMode: 'paste' },
+      settings: { clearCursorPromptAfterHandoff: false, deliveryMode: 'paste' },
     })
   })
 

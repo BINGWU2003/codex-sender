@@ -26,6 +26,7 @@ export interface CodexAppDeliveryResult {
 }
 
 export interface CodexAppSystem {
+  clearFocusedCursorPrompt: (expectedText: string) => Promise<void>
   copyFocusedCursorPrompt: () => Promise<string>
   copyAndOpen: (url: string, text: string) => Promise<void>
   pasteIntoComposer: (text: string, submit?: boolean) => Promise<void>
@@ -56,6 +57,12 @@ export class CodexAppLauncher {
     if (this.platform !== 'win32')
       throw new Error('Cursor 原生复制目前只支持 Windows')
     return await this.system.copyFocusedCursorPrompt()
+  }
+
+  async clearFocusedCursorPrompt(expectedText: string): Promise<void> {
+    if (this.platform !== 'win32')
+      throw new Error('清空 Cursor 输入框目前只支持 Windows')
+    await this.system.clearFocusedCursorPrompt(expectedText)
   }
 
   async deliver(request: CodexAppDeliveryRequest): Promise<CodexAppDeliveryResult> {
@@ -146,6 +153,11 @@ export function createNewTaskUrl(cwd: string, prompt?: string): string {
 }
 
 class WindowsCodexAppSystem implements CodexAppSystem {
+  async clearFocusedCursorPrompt(expectedText: string): Promise<void> {
+    // eslint-disable-next-line ts/no-use-before-define
+    await runPowerShell(clearFocusedCursorPromptScript, expectedText)
+  }
+
   async copyFocusedCursorPrompt(): Promise<string> {
     // eslint-disable-next-line ts/no-use-before-define
     const encoded = (await runPowerShell(copyFocusedCursorPromptScript)).trim()
@@ -274,6 +286,53 @@ if ([String]::IsNullOrEmpty($text) -or $text -eq $sentinel) {
   throw 'Cursor 没有将提示词写入系统剪贴板'
 }
 [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text)))
+`
+
+const clearFocusedCursorPromptScript = String.raw`
+$ErrorActionPreference = 'Stop'
+${decodeInputScript}
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class CodexSenderCursorClearNative {
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+
+$windowHandle = [CodexSenderCursorClearNative]::GetForegroundWindow()
+$processId = [uint32]0
+[void][CodexSenderCursorClearNative]::GetWindowThreadProcessId($windowHandle, [ref]$processId)
+$process = Get-Process -Id $processId -ErrorAction Stop
+if ($process.ProcessName -ne 'Cursor') { throw '前台窗口不是 Cursor，已保留原提示词' }
+$focused = [Windows.Automation.AutomationElement]::FocusedElement
+if ($null -eq $focused -or $focused.Current.ProcessId -ne $processId) {
+  throw '键盘焦点不在 Cursor 输入框，已保留原提示词'
+}
+
+$sentinel = 'codex-sender-clear-' + [Guid]::NewGuid().ToString('N')
+Set-Clipboard -Value $sentinel
+[Windows.Forms.SendKeys]::SendWait('^a')
+Start-Sleep -Milliseconds 75
+[Windows.Forms.SendKeys]::SendWait('^c')
+Start-Sleep -Milliseconds 175
+
+if ([CodexSenderCursorClearNative]::GetForegroundWindow() -ne $windowHandle) {
+  throw '清空前 Cursor 窗口焦点发生变化，已保留原提示词'
+}
+$actual = Get-Clipboard -Raw
+if ($null -eq $actual -or -not [String]::Equals($actual, $text, [StringComparison]::Ordinal)) {
+  Set-Clipboard -Value $text
+  throw '当前选中内容与本次提示词不一致，已保留原提示词'
+}
+
+[Windows.Forms.SendKeys]::SendWait('{DELETE}')
+Start-Sleep -Milliseconds 100
 `
 
 const pasteIntoComposerScript = String.raw`

@@ -149,7 +149,22 @@ export class BridgeServer {
           throw new HttpError(422, 'Cursor 原生复制结果缺少 @文件路径，已停止交接')
         }
         text = requireText(text)
-        this.json(response, 200, { text })
+        const settings = await this.stateStore.getSettings()
+        let sourceCleared = false
+        let warning: string | undefined
+        if (settings.clearCursorPromptAfterHandoff) {
+          try {
+            await this.appLauncher.clearFocusedCursorPrompt(text)
+            sourceCleared = true
+            await this.logger.log('info', 'cursor_prompt_cleared', {})
+          }
+          catch (error) {
+            const reason = error instanceof Error ? error.message : String(error)
+            warning = `未能安全清空 Cursor 输入框：${reason}`
+            await this.logger.log('warn', 'cursor_prompt_clear_skipped', { reason })
+          }
+        }
+        this.json(response, 200, { sourceCleared, text, warning })
         return
       }
       if (request.method === 'POST' && url.pathname === '/api/send-clipboard') {
@@ -196,11 +211,24 @@ export class BridgeServer {
         return
       }
       if (request.method === 'POST' && url.pathname === '/api/settings') {
-        const body = await readJsonBody(request) as { deliveryMode?: unknown }
-        const deliveryMode = requireDeliveryMode(body.deliveryMode)
-        await this.stateStore.setDeliveryMode(deliveryMode)
-        await this.logger.log('info', 'delivery_mode_changed', { deliveryMode })
-        this.json(response, 200, { deliveryMode })
+        const body = await readJsonBody(request) as {
+          clearCursorPromptAfterHandoff?: unknown
+          deliveryMode?: unknown
+        }
+        if (body.deliveryMode === undefined && body.clearCursorPromptAfterHandoff === undefined)
+          throw new HttpError(400, '至少需要提供一项设置')
+        const currentSettings = await this.stateStore.getSettings()
+        const settings = {
+          clearCursorPromptAfterHandoff: body.clearCursorPromptAfterHandoff === undefined
+            ? currentSettings.clearCursorPromptAfterHandoff
+            : requireBoolean(body.clearCursorPromptAfterHandoff, 'clearCursorPromptAfterHandoff'),
+          deliveryMode: body.deliveryMode === undefined
+            ? currentSettings.deliveryMode
+            : requireDeliveryMode(body.deliveryMode),
+        }
+        await this.stateStore.setSettings(settings)
+        await this.logger.log('info', 'settings_changed', settings)
+        this.json(response, 200, settings)
         return
       }
       if (request.method === 'POST' && url.pathname === '/api/bind') {
@@ -330,6 +358,12 @@ function requireText(value: unknown): string {
 function requireDeliveryMode(value: unknown): DeliveryMode {
   if (value !== 'copy' && value !== 'paste' && value !== 'paste-and-send')
     throw new HttpError(400, 'deliveryMode 必须是 copy、paste 或 paste-and-send')
+  return value
+}
+
+function requireBoolean(value: unknown, name: string): boolean {
+  if (typeof value !== 'boolean')
+    throw new HttpError(400, `${name} 必须是布尔值`)
   return value
 }
 
