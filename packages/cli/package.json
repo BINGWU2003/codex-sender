@@ -1,7 +1,7 @@
 {
   "name": "codex-sender",
   "type": "module",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "为 Cursor Agent 输入框注入交接提示词到 Codex App 的按钮。",
   "author": {
     "name": "BINGWU2003",
