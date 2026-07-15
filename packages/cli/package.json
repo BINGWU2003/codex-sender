@@ -1,5 +1,5 @@
 {
-  "name": "codex-sender",
+  "name": "@codex-sender/cli",
   "type": "module",
   "version": "0.1.2",
   "description": "为 Cursor Agent 输入框注入交接提示词到 Codex App 的按钮。",
@@ -45,7 +45,7 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "lint": "eslint .",
-    "prepack": "pnpm --workspace-root turbo run build --filter=codex-sender...",
+    "prepack": "pnpm --workspace-root turbo run build --filter=@codex-sender/cli...",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

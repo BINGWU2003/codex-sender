@@ -14,14 +14,14 @@
 使用 `npx` 免安装运行：
 
 ```powershell
-npx --yes codex-sender@latest install --no-startup
-npx --yes codex-sender@latest serve
+npx --yes @codex-sender/cli@latest install --no-startup
+npx --yes @codex-sender/cli@latest serve
 ```
 
 `serve` 会在前台运行，关闭终端后 Bridge 也会停止。长期使用和 Windows 登录自启动推荐全局安装，避免启动项依赖可能被清理的 npm 临时缓存：
 
 ```powershell
-npm install -g codex-sender
+npm install -g @codex-sender/cli
 codex-sender install
 ```
 
@@ -35,7 +35,7 @@ codex-sender install
 
 ## 命令说明
 
-所有 `codex-sender ...` 命令都可以替换为 `npx --yes codex-sender@latest ...`。
+所有 `codex-sender ...` 命令都可以替换为 `npx --yes @codex-sender/cli@latest ...`。
 
 | 命令 | 作用 | 参数 |
 | --- | --- | --- |
@@ -50,10 +50,10 @@ codex-sender install
 示例：
 
 ```powershell
-npx --yes codex-sender@latest doctor
-npx --yes codex-sender@latest logs --lines 200
-npx --yes codex-sender@latest repair --cursor-path "D:\Program Files\Cursor\Cursor.exe" --no-startup
-npx --yes codex-sender@latest uninstall
+npx --yes @codex-sender/cli@latest doctor
+npx --yes @codex-sender/cli@latest logs --lines 200
+npx --yes @codex-sender/cli@latest repair --cursor-path "D:\Program Files\Cursor\Cursor.exe" --no-startup
+npx --yes @codex-sender/cli@latest uninstall
 ```
 
 安装、修复和卸载前必须完全退出 Cursor。Cursor 位于 `Program Files` 等受保护目录时，请在管理员终端运行命令。

@@ -1,4 +1,4 @@
-# codex-sender
+# @codex-sender/cli
 
 ## 0.1.2
 

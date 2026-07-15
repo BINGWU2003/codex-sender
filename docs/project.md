@@ -15,7 +15,7 @@
 Codex Sender 不采用 VS Code/Cursor 扩展形式，也不提供独立 Webview。用户全局安装 npm 包并运行一次安装命令，工具直接在 Cursor 编辑器右侧 Agent 输入框旁注入按钮：
 
 ```powershell
-npm install -g codex-sender
+npm install -g @codex-sender/cli
 codex-sender install
 ```
 
