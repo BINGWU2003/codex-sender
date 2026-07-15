@@ -8,7 +8,10 @@ describe('injection script generation', () => {
 
     expect(source).toContain('127.0.0.1:')
     expect(source).toContain('secret-token')
-    expect(normalizedSource).toContain('.composer-bar[data-composer-location="pane"]')
+    expect(normalizedSource).toContain('.composer-unified-dropdown[data-mode]')
+    expect(normalizedSource).toContain('insertAdjacentElement("afterend"')
+    expect(normalizedSource).not.toContain('.composer-bar')
+    expect(normalizedSource).not.toContain('data-composer-location')
     expect(normalizedSource).toContain('.aislash-editor-input[contenteditable="true"]')
     expect(normalizedSource).not.toContain('.ui-prompt-input-editor__input')
     expect(normalizedSource).not.toContain('.ProseMirror[contenteditable="true"]')

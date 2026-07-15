@@ -11,8 +11,7 @@ export function createInjectionScript(config: InjectionConfig): string {
 function injectedMain(config: InjectionConfig): void {
   const markerAttribute = 'data-codex-sender'
   const editorSelector = '.aislash-editor-input[contenteditable="true"]'
-  const composerSelector = '.composer-bar[data-composer-location="pane"]'
-  const sendButtonSelector = '.composer-bar[data-composer-location="pane"] button'
+  const modePickerSelector = '.composer-unified-dropdown[data-mode]'
   const apiBase = `http://127.0.0.1:${config.port}`
   let picker: HTMLElement | undefined
   let pickerTrigger: HTMLButtonElement | undefined
@@ -52,49 +51,49 @@ function injectedMain(config: InjectionConfig): void {
 
   function mountButtons(): void {
     for (const editor of document.querySelectorAll<HTMLElement>(editorSelector)) {
-      const composer = editor.closest<HTMLElement>(composerSelector)
-      const cursorSendButton = composer?.querySelector<HTMLButtonElement>(sendButtonSelector)
-      const parent = cursorSendButton?.parentElement
+      const modePicker = findModePicker(editor)
+      const parent = modePicker?.parentElement
 
-      if (!composer || !cursorSendButton || !parent || composer.querySelector(`[${markerAttribute}]`))
+      if (!modePicker || !parent || parent.querySelector(`[${markerAttribute}]`))
         continue
 
       const group = document.createElement('span')
       group.setAttribute(markerAttribute, config.version)
       group.dataset.codexSenderGroup = ''
 
-      const sendButton = createToolbarButton(cursorSendButton, 'Codex', '交接到 Codex App')
+      const sendButton = createToolbarButton('Codex', '交接到 Codex App')
       sendButton.dataset.codexSenderButton = ''
-      sendButton.addEventListener('click', event => void sendToCodex(event, composer, sendButton))
+      sendButton.addEventListener('click', event => void sendToCodex(event, editor, sendButton))
 
-      const pickerButton = createToolbarButton(cursorSendButton, '⌄', '选择 Codex 任务')
+      const pickerButton = createToolbarButton('⌄', '选择 Codex 任务')
       pickerButton.dataset.codexSenderPickerButton = ''
-      pickerButton.addEventListener('click', event => void openThreadPicker(event, composer, pickerButton))
+      pickerButton.addEventListener('click', event => void openThreadPicker(event, pickerButton))
 
       group.append(sendButton, pickerButton)
-      const anchor = findDirectChild(parent, cursorSendButton)
-      parent.insertBefore(group, anchor)
+      modePicker.insertAdjacentElement('afterend', group)
     }
   }
 
-  function findDirectChild(parent: HTMLElement, descendant: HTMLElement): HTMLElement | null {
-    let current: HTMLElement | null = descendant
-    while (current?.parentElement && current.parentElement !== parent)
-      current = current.parentElement
-    return current?.parentElement === parent ? current : null
+  function findModePicker(editor: HTMLElement): HTMLElement | undefined {
+    for (let container = editor.parentElement; container && container !== document.body; container = container.parentElement) {
+      const editors = container.querySelectorAll(editorSelector)
+      const modePickers = container.querySelectorAll<HTMLElement>(modePickerSelector)
+      if (editors.length === 1 && editors[0] === editor && modePickers.length === 1)
+        return modePickers[0]
+    }
+    return undefined
   }
 
-  function createToolbarButton(template: HTMLButtonElement, label: string, title: string): HTMLButtonElement {
+  function createToolbarButton(label: string, title: string): HTMLButtonElement {
     const button = document.createElement('button')
     button.type = 'button'
-    button.className = template.className
     button.textContent = label
     button.title = title
     button.setAttribute('aria-label', title)
     return button
   }
 
-  async function sendToCodex(event: Event, composer: HTMLElement, button: HTMLButtonElement): Promise<void> {
+  async function sendToCodex(event: Event, editor: HTMLElement, button: HTMLButtonElement): Promise<void> {
     event.preventDefault()
     event.stopPropagation()
     let restoreEditorState: (() => void) | undefined
@@ -102,9 +101,6 @@ function injectedMain(config: InjectionConfig): void {
     try {
       await ensureBridgeVersion()
       setButtonState(button, 'sending', '正在读取 Cursor 输入框…')
-      const editor = composer.querySelector<HTMLElement>(editorSelector)
-      if (!editor)
-        throw new Error('未找到 Cursor 输入框')
       const prepared = prepareNativeCopy(editor)
       restoreEditorState = prepared.restore
       void logEvent('info', 'cursor_copy_prepared', prepared.diagnostics)
@@ -208,7 +204,7 @@ function injectedMain(config: InjectionConfig): void {
     }
   }
 
-  async function openThreadPicker(event: MouseEvent, composer: HTMLElement, button: HTMLButtonElement): Promise<void> {
+  async function openThreadPicker(event: MouseEvent, button: HTMLButtonElement): Promise<void> {
     event.preventDefault()
     event.stopPropagation()
     closePicker()
@@ -228,7 +224,7 @@ function injectedMain(config: InjectionConfig): void {
         binding?: { activeThreadId: string, title: string }
         settings: { deliveryMode: 'copy' | 'paste' | 'paste-and-send' }
       }
-      renderThreadPicker(result, cwd, composer)
+      renderThreadPicker(result, cwd)
     }
     catch (error) {
       picker.textContent = getErrorMessage(error)
@@ -239,7 +235,7 @@ function injectedMain(config: InjectionConfig): void {
     data: Array<{ id: string, name: string | null, preview: string, cwd: string, source: unknown, updatedAt: number }>
     binding?: { activeThreadId: string, title: string }
     settings: { deliveryMode: 'copy' | 'paste' | 'paste-and-send' }
-  }, cwd: string, composer: HTMLElement): void {
+  }, cwd: string): void {
     if (!picker)
       return
 
@@ -251,17 +247,17 @@ function injectedMain(config: InjectionConfig): void {
 
     const copyMode = createPickerItem(`${result.settings.deliveryMode === 'copy' ? '✓ ' : ''}打开并复制（推荐）`, '打开任务后由你按 Ctrl+V，再确认发送')
     copyMode.dataset.active = String(result.settings.deliveryMode === 'copy')
-    copyMode.addEventListener('click', () => void updateSettings('copy', composer))
+    copyMode.addEventListener('click', () => void updateSettings('copy'))
     picker.append(copyMode)
 
     const pasteMode = createPickerItem(`${result.settings.deliveryMode === 'paste' ? '✓ ' : ''}打开并自动粘贴（实验）`, '使用 Windows 辅助功能定位输入框；仍由你按 Enter')
     pasteMode.dataset.active = String(result.settings.deliveryMode === 'paste')
-    pasteMode.addEventListener('click', () => void updateSettings('paste', composer))
+    pasteMode.addEventListener('click', () => void updateSettings('paste'))
     picker.append(pasteMode)
 
     const pasteAndSendMode = createPickerItem(`${result.settings.deliveryMode === 'paste-and-send' ? '✓ ' : ''}打开、自动粘贴并发送（实验）`, '校验粘贴内容后自动按 Enter 发送')
     pasteAndSendMode.dataset.active = String(result.settings.deliveryMode === 'paste-and-send')
-    pasteAndSendMode.addEventListener('click', () => void updateSettings('paste-and-send', composer))
+    pasteAndSendMode.addEventListener('click', () => void updateSettings('paste-and-send'))
     picker.append(pasteAndSendMode)
 
     const divider = document.createElement('div')
@@ -275,7 +271,7 @@ function injectedMain(config: InjectionConfig): void {
 
     const create = createPickerItem(`${result.binding ? '＋' : '✓'} 新建 Codex 任务`, '下次点击 Codex 时打开带预填提示词的新任务')
     create.dataset.active = String(!result.binding)
-    create.addEventListener('click', () => void updateBinding('/api/unbind', { cwd }, composer))
+    create.addEventListener('click', () => void updateBinding('/api/unbind', { cwd }))
     picker.append(create)
 
     for (const thread of result.data) {
@@ -288,7 +284,7 @@ function injectedMain(config: InjectionConfig): void {
         cwd,
         threadId: thread.id,
         title,
-      }, composer))
+      }))
       picker.append(item)
     }
 
@@ -312,10 +308,10 @@ function injectedMain(config: InjectionConfig): void {
     return item
   }
 
-  async function updateBinding(endpoint: string, value: object, composer: HTMLElement): Promise<void> {
+  async function updateBinding(endpoint: string, value: object): Promise<void> {
     try {
       await request(endpoint, { method: 'POST', body: JSON.stringify(value) })
-      const trigger = pickerTrigger ?? composer.querySelector<HTMLButtonElement>('[data-codex-sender-picker-button]') ?? undefined
+      const trigger = pickerTrigger
       closePicker()
       trigger?.focus()
     }
@@ -325,13 +321,13 @@ function injectedMain(config: InjectionConfig): void {
     }
   }
 
-  async function updateSettings(deliveryMode: 'copy' | 'paste' | 'paste-and-send', composer: HTMLElement): Promise<void> {
+  async function updateSettings(deliveryMode: 'copy' | 'paste' | 'paste-and-send'): Promise<void> {
     try {
       await request('/api/settings', {
         method: 'POST',
         body: JSON.stringify({ deliveryMode }),
       })
-      const trigger = pickerTrigger ?? composer.querySelector<HTMLButtonElement>('[data-codex-sender-picker-button]') ?? undefined
+      const trigger = pickerTrigger
       closePicker()
       trigger?.focus()
     }
