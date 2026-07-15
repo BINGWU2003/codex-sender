@@ -20,6 +20,7 @@ export interface CodexAppDeliveryResult {
   copied: true
   prefilled: boolean
   pasted: boolean
+  submitted: boolean
   message: string
   warning?: string
 }
@@ -27,7 +28,7 @@ export interface CodexAppDeliveryResult {
 export interface CodexAppSystem {
   copyFocusedCursorPrompt: () => Promise<string>
   copyAndOpen: (url: string, text: string) => Promise<void>
-  pasteIntoComposer: (text: string) => Promise<void>
+  pasteIntoComposer: (text: string, submit?: boolean) => Promise<void>
   readClipboardText: () => Promise<string>
 }
 
@@ -69,7 +70,7 @@ export class CodexAppLauncher {
 
     await this.system.copyAndOpen(url, request.text)
 
-    if (prefilled) {
+    if (prefilled && request.mode !== 'paste-and-send') {
       return {
         requestedMode: request.mode,
         mode: request.mode,
@@ -77,34 +78,42 @@ export class CodexAppLauncher {
         copied: true,
         prefilled: true,
         pasted: false,
+        submitted: false,
         message: '已在 Codex App 新任务中预填提示词，请确认后按 Enter',
       }
     }
 
-    if (request.mode === 'paste') {
+    if (request.mode === 'paste' || request.mode === 'paste-and-send') {
+      const shouldSubmit = request.mode === 'paste-and-send'
       try {
-        await this.system.pasteIntoComposer(request.text)
+        await this.system.pasteIntoComposer(request.text, shouldSubmit)
         return {
           requestedMode: request.mode,
-          mode: 'paste',
+          mode: request.mode,
           threadId: request.threadId,
           copied: true,
-          prefilled: false,
-          pasted: true,
-          message: '已打开 Codex App 并粘贴提示词，请确认后按 Enter',
+          prefilled,
+          pasted: !prefilled,
+          submitted: shouldSubmit,
+          message: shouldSubmit
+            ? `已在 Codex App ${prefilled ? '预填' : '粘贴'}提示词并自动发送`
+            : '已打开 Codex App 并粘贴提示词，请确认后按 Enter',
         }
       }
       catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
         return {
           requestedMode: request.mode,
-          mode: 'copy',
+          mode: prefilled ? 'paste' : 'copy',
           threadId: request.threadId,
           copied: true,
-          prefilled: false,
+          prefilled,
           pasted: false,
-          message: '已打开 Codex App 并复制提示词，请按 Ctrl+V 后发送',
-          warning: `自动粘贴未完成：${reason}`,
+          submitted: false,
+          message: prefilled
+            ? '已在 Codex App 新任务中预填提示词，请确认后按 Enter'
+            : '已打开 Codex App 并复制提示词，请按 Ctrl+V 后发送',
+          warning: `${shouldSubmit ? '自动粘贴并发送' : '自动粘贴'}未完成：${reason}`,
         }
       }
     }
@@ -116,6 +125,7 @@ export class CodexAppLauncher {
       copied: true,
       prefilled: false,
       pasted: false,
+      submitted: false,
       message: '已打开 Codex App 并复制提示词，请按 Ctrl+V 后发送',
     }
   }
@@ -150,9 +160,9 @@ class WindowsCodexAppSystem implements CodexAppSystem {
     await runPowerShell(copyAndOpenScript, text, { CODEX_SENDER_URL: url })
   }
 
-  async pasteIntoComposer(text: string): Promise<void> {
+  async pasteIntoComposer(text: string, submit = false): Promise<void> {
     // eslint-disable-next-line ts/no-use-before-define
-    await runPowerShell(pasteIntoComposerScript, text)
+    await runPowerShell(pasteIntoComposerScript, text, { CODEX_SENDER_SUBMIT: submit ? '1' : '0' })
   }
 
   async readClipboardText(): Promise<string> {
@@ -463,4 +473,26 @@ while ([DateTime]::UtcNow -lt $deadline -and -not $verified) {
   if (-not $verified) { Start-Sleep -Milliseconds 200 }
 }
 if (-not $verified) { throw "已执行 $pasteAttempts 次粘贴，但无法从辅助功能树校验输入内容" }
+if ($env:CODEX_SENDER_SUBMIT -eq '1') {
+  if ([CodexSenderNative]::GetForegroundWindow().ToInt32() -ne $target.WindowHandle) {
+    throw '粘贴完成后 Codex App 窗口焦点已变化，已停止自动发送'
+  }
+  try {
+    $composer.SetFocus()
+  } catch [System.Windows.Automation.ElementNotAvailableException] {
+    throw 'Codex 输入框已失效，已停止自动发送'
+  }
+  Start-Sleep -Milliseconds 100
+  if (-not (Test-ComposerFocus $composer)) {
+    try {
+      Click-Composer $composer
+    } catch [System.Windows.Automation.ElementNotAvailableException] {
+      throw 'Codex 输入框已失效，已停止自动发送'
+    }
+  }
+  if ([CodexSenderNative]::GetForegroundWindow().ToInt32() -ne $target.WindowHandle -or -not (Test-ComposerFocus $composer)) {
+    throw '无法确认 Codex 输入框焦点，已停止自动发送'
+  }
+  [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+}
 `

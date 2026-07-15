@@ -224,7 +224,7 @@ function injectedMain(config: InjectionConfig): void {
       const result = await request(`/api/threads?cwd=${encodeURIComponent(cwd)}`) as {
         data: Array<{ id: string, name: string | null, preview: string, cwd: string, source: unknown, updatedAt: number }>
         binding?: { activeThreadId: string, title: string }
-        settings: { deliveryMode: 'copy' | 'paste' }
+        settings: { deliveryMode: 'copy' | 'paste' | 'paste-and-send' }
       }
       renderThreadPicker(result, cwd, composer)
     }
@@ -236,7 +236,7 @@ function injectedMain(config: InjectionConfig): void {
   function renderThreadPicker(result: {
     data: Array<{ id: string, name: string | null, preview: string, cwd: string, source: unknown, updatedAt: number }>
     binding?: { activeThreadId: string, title: string }
-    settings: { deliveryMode: 'copy' | 'paste' }
+    settings: { deliveryMode: 'copy' | 'paste' | 'paste-and-send' }
   }, cwd: string, composer: HTMLElement): void {
     if (!picker)
       return
@@ -256,6 +256,11 @@ function injectedMain(config: InjectionConfig): void {
     pasteMode.dataset.active = String(result.settings.deliveryMode === 'paste')
     pasteMode.addEventListener('click', () => void updateSettings('paste', composer))
     picker.append(pasteMode)
+
+    const pasteAndSendMode = createPickerItem(`${result.settings.deliveryMode === 'paste-and-send' ? '✓ ' : ''}打开、自动粘贴并发送（实验）`, '校验粘贴内容后自动按 Enter 发送')
+    pasteAndSendMode.dataset.active = String(result.settings.deliveryMode === 'paste-and-send')
+    pasteAndSendMode.addEventListener('click', () => void updateSettings('paste-and-send', composer))
+    picker.append(pasteAndSendMode)
 
     const divider = document.createElement('div')
     divider.dataset.codexSenderDivider = ''
@@ -318,7 +323,7 @@ function injectedMain(config: InjectionConfig): void {
     }
   }
 
-  async function updateSettings(deliveryMode: 'copy' | 'paste', composer: HTMLElement): Promise<void> {
+  async function updateSettings(deliveryMode: 'copy' | 'paste' | 'paste-and-send', composer: HTMLElement): Promise<void> {
     try {
       await request('/api/settings', {
         method: 'POST',

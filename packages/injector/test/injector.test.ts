@@ -16,6 +16,8 @@ describe('injection script generation', () => {
     expect(source).toContain('rect.bottom + 6')
     expect(source).toContain('/api/settings')
     expect(source).toContain('打开并自动粘贴')
+    expect(source).toContain('打开、自动粘贴并发送')
+    expect(source).toContain('paste-and-send')
     expect(source.indexOf('打开并复制（推荐）')).toBeLessThan(source.indexOf('新建 Codex 任务'))
     expect(source).toContain('pointerdown')
     expect(source).toContain('event.key')

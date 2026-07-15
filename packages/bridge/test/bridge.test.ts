@@ -17,7 +17,7 @@ function createFakeSystem(): CodexAppSystem {
   return {
     copyFocusedCursorPrompt: vi.fn(async () => ''),
     copyAndOpen: vi.fn(async () => {}),
-    pasteIntoComposer: vi.fn(async () => {}),
+    pasteIntoComposer: vi.fn(async (_text: string, _submit?: boolean) => {}),
     readClipboardText: vi.fn(async () => ''),
   }
 }
@@ -85,6 +85,34 @@ describe('codex app launcher', () => {
     expect(result).toMatchObject({ mode: 'copy', requestedMode: 'paste', pasted: false })
     expect(result.warning).toContain('输入框已有草稿')
     expect(system.copyAndOpen).toHaveBeenCalledWith(createThreadUrl('019f-test-thread'), '继续处理')
+  })
+
+  it('pastes and submits an existing task only in paste-and-send mode', async () => {
+    const system = createFakeSystem()
+    const launcher = new CodexAppLauncher({ platform: 'win32', system })
+    const result = await launcher.deliver({
+      cwd: 'D:\\work\\demo',
+      text: '继续处理',
+      threadId: '019f-test-thread',
+      mode: 'paste-and-send',
+    })
+
+    expect(result).toMatchObject({
+      mode: 'paste-and-send',
+      requestedMode: 'paste-and-send',
+      pasted: true,
+      submitted: true,
+    })
+    expect(system.pasteIntoComposer).toHaveBeenCalledWith('继续处理', true)
+  })
+
+  it('submits a prefilled new task without pasting it again', async () => {
+    const system = createFakeSystem()
+    const launcher = new CodexAppLauncher({ platform: 'win32', system })
+    const result = await launcher.deliver({ cwd: 'D:\\work\\demo', text: '新任务', mode: 'paste-and-send' })
+
+    expect(result).toMatchObject({ prefilled: true, pasted: false, submitted: true })
+    expect(system.pasteIntoComposer).toHaveBeenCalledWith('新任务', true)
   })
 })
 
@@ -299,6 +327,27 @@ describe('bridge server', () => {
 
     expect(response.status).toBe(200)
     expect(await stateStore.getSettings()).toEqual({ deliveryMode: 'paste' })
+  })
+
+  it('persists the guarded paste-and-send setting', async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), 'codex-sender-bridge-'))
+    const stateStore = new StateStore({ dataDirectory })
+    const server = new BridgeServer({ stateStore, port: 0 })
+    servers.push(server)
+    const port = await server.start()
+    const state = await stateStore.load()
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-codex-sender-token': state.token,
+      },
+      body: JSON.stringify({ deliveryMode: 'paste-and-send' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await stateStore.getSettings()).toEqual({ deliveryMode: 'paste-and-send' })
   })
 
   it('returns thread data with the current binding and delivery setting', async () => {

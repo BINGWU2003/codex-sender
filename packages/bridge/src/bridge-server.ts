@@ -271,6 +271,7 @@ export class BridgeServer {
       threadId: result.threadId,
       prefilled: result.prefilled,
       pasted: result.pasted,
+      submitted: result.submitted,
       warning: result.warning,
     })
   }
@@ -322,8 +323,8 @@ function requireText(value: unknown): string {
 }
 
 function requireDeliveryMode(value: unknown): DeliveryMode {
-  if (value !== 'copy' && value !== 'paste')
-    throw new HttpError(400, 'deliveryMode 必须是 copy 或 paste')
+  if (value !== 'copy' && value !== 'paste' && value !== 'paste-and-send')
+    throw new HttpError(400, 'deliveryMode 必须是 copy、paste 或 paste-and-send')
   return value
 }
 

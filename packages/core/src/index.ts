@@ -4,7 +4,7 @@ export interface WorkspaceThreadBinding {
   updatedAt?: string
 }
 
-export type DeliveryMode = 'copy' | 'paste'
+export type DeliveryMode = 'copy' | 'paste' | 'paste-and-send'
 
 export interface CodexSenderSettings {
   deliveryMode: DeliveryMode

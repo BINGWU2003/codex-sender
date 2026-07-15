@@ -133,7 +133,7 @@ function validateState(value: unknown): CodexSenderState {
   }
 
   const deliveryMode = state.version === 2 ? state.settings?.deliveryMode : 'copy'
-  if (deliveryMode !== 'copy' && deliveryMode !== 'paste')
+  if (deliveryMode !== 'copy' && deliveryMode !== 'paste' && deliveryMode !== 'paste-and-send')
     throw new Error('codex-sender state.json 发送方式无效')
 
   return {

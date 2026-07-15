@@ -19,7 +19,7 @@ npm install -g @codex-sender/cli
 codex-sender install
 ```
 
-项目解决的是跨应用提示词交接，而不是重新实现 Codex 客户端：用户在 Cursor 输入框中整理提示词，Codex Sender 读取内容、打开选定的 Codex App 任务并复制或粘贴，最终由用户确认发送。
+项目解决的是跨应用提示词交接，而不是重新实现 Codex 客户端：用户在 Cursor 输入框中整理提示词，Codex Sender 读取内容、打开选定的 Codex App 任务并复制或粘贴，默认由用户确认发送，也可显式启用受保护的自动发送。
 
 这是依赖 Cursor 私有 DOM 和安装目录结构的非官方本地补丁方案，第一版只支持 Windows。
 
@@ -31,8 +31,8 @@ codex-sender install
 → 点击 Codex
 → 调用 Cursor 原生复制序列化，不需要手动 Ctrl+C
 → 打开当前工作区绑定的 Codex App 任务
-→ 默认复制，或可选自动粘贴
-→ 用户检查后按 Enter
+→ 默认复制，或可选自动粘贴 / 自动粘贴并发送
+→ 默认由用户检查后按 Enter
 ```
 
 未绑定历史任务时使用：
@@ -49,7 +49,7 @@ codex://threads/new?prompt=<encoded>&path=<encoded-absolute-path>
 codex://threads/<thread-id>
 ```
 
-现有任务链接没有公开的 `prompt` 参数，因此默认流程是打开任务后由用户 `Ctrl+V`。实验模式会使用 Windows UI Automation 自动粘贴，但仍不会按 `Enter`。
+现有任务链接没有公开的 `prompt` 参数，因此默认流程是打开任务后由用户 `Ctrl+V`。实验模式会使用 Windows UI Automation 自动粘贴；用户还可以显式选择在粘贴内容和焦点校验通过后自动按 `Enter`。
 
 ## 任务绑定与设置
 
@@ -71,10 +71,11 @@ codex://threads/<thread-id>
 }
 ```
 
-`deliveryMode` 有两个值：
+`deliveryMode` 有三个值：
 
 - `copy`：默认模式。复制提示词并打开任务，由用户粘贴和发送。
 - `paste`：实验模式。复制、打开后通过辅助功能树定位输入框并粘贴，由用户发送。
+- `paste-and-send`：实验模式。粘贴并回读校验内容后，再确认 Codex 窗口和输入框焦点，然后自动按 `Enter` 发送。
 
 任务选择面板列出相同工作目录的历史任务，并显示当前绑定。选择“新建 Codex 任务”会解除绑定；新任务实际发送后，用户可以从列表中将其绑定，后续即可直接打开。
 
@@ -161,7 +162,7 @@ Cursor 的 `@file` 是 Lexical mention 节点，DOM 只暴露显示名和内部 
 分析一下这个文件 @docker/Dockerfile.app @packages/domain/src/admin.ts @admin.ts (26-40)
 ```
 
-复制完成后，注入脚本恢复此前的 DOM 选区和焦点，再调用 `/api/send`。如果前台窗口或焦点在复制期间变化，或者富文本结果缺少 `@`，Bridge 返回错误并停止。整个流程只模拟全选和复制，永远不模拟 `Enter`。
+复制完成后，注入脚本恢复此前的 DOM 选区和焦点，再调用 `/api/send`。如果前台窗口或焦点在复制期间变化，或者富文本结果缺少 `@`，Bridge 返回错误并停止。Cursor 内的读取流程只模拟全选和复制，不模拟 `Enter`。
 
 任务选择面板使用 `position: fixed`，根据 `⌄` 按钮的 `getBoundingClientRect()` 放在按钮下方，并限制剩余视口高度。
 
@@ -186,7 +187,7 @@ interface DeliveryRequest {
 2. 使用 `Set-Clipboard` 写入剪贴板，作为所有模式的兜底。
 3. Deep Link 通过环境变量交给 `Start-Process`，避免 `&` 等字符被 shell 解释。
 
-新任务在 URL 长度允许时通过 `prompt` 预填；历史任务打开后按配置选择手动粘贴或自动粘贴。
+新任务在 URL 长度允许时通过 `prompt` 预填；历史任务打开后按配置选择手动粘贴、自动粘贴或自动粘贴并发送。
 
 自动粘贴的保护条件：
 
@@ -194,8 +195,8 @@ interface DeliveryRequest {
 - 优先选择辅助功能树中可聚焦的 `ProseMirror` Group，并为兼容版本变化保留带 composer 名称的 `Edit`/`Document` 回退；定位只使用元素属性和窗口内相对位置，不点击固定坐标。
 - 粘贴前读取输入框；已有草稿时立即停止。
 - 粘贴后从 `ValuePattern` 或 `TextPattern` 回读并校验内容。
-- 任一步失败都返回 `copy` 兜底结果；剪贴板内容不丢失。
-- 永远不模拟 `Enter`。
+- 任一步失败都保留剪贴板内容；新任务已预填时由用户手动发送，其他情况退回 `copy` 兜底。
+- 仅 `paste-and-send` 模式会在内容、前台窗口和输入框焦点均校验通过后模拟 `Enter`。
 
 ## Localhost Bridge
 
