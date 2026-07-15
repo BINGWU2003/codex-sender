@@ -16,6 +16,8 @@ packages:
   - packages/*
 
 catalog:
+  '@changesets/changelog-github': ^0.7.0
+  '@changesets/cli': ^2.31.0
   '@clack/prompts': ^1.7.0
 
 catalogs:

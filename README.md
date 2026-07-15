@@ -211,6 +211,24 @@ pnpm run check
 
 测试使用临时 Cursor fixture，不会修改真实安装。详细设计参阅 [项目文档](./docs/project.md)。
 
+## 版本与发布
+
+项目使用 [Changesets](https://github.com/changesets/changesets) 管理 `codex-sender` 的版本、CHANGELOG 和 npm 发布。私有 workspace 包不会单独发布或打 tag。
+
+功能或修复完成后创建 changeset：
+
+```powershell
+pnpm changeset
+```
+
+选择 `codex-sender`、版本类型，并使用简体中文填写面向用户的变更说明。提交 changeset 后：
+
+1. 代码合并到 `main`，GitHub Actions 自动创建或更新 `chore: 发布新版本` PR。
+2. 合并该发布 PR，工作流运行 `changeset publish`。
+3. npm 发布成功后自动创建 Git tag 和 GitHub Release。
+
+仓库需要配置 GitHub Actions Secret `NPM_TOKEN`，令牌必须具有发布 `codex-sender` 的权限。工作流启用了 npm provenance，并在发布前运行完整 `pnpm run check`。
+
 ## 项目地址
 
 - GitHub：[BINGWU2003/codex-sender](https://github.com/BINGWU2003/codex-sender)

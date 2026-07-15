@@ -19,14 +19,19 @@
   "scripts": {
     "build": "turbo run build",
     "check": "pnpm run lint && turbo run typecheck test build",
+    "changeset": "changeset",
     "dev": "turbo run dev",
     "lint": "eslint . && turbo run lint",
+    "release": "changeset publish",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
+    "version-packages": "changeset version",
     "prepare": "git config core.hooksPath .githooks && simple-git-hooks && skills-npm"
   },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:cli",
+    "@changesets/changelog-github": "catalog:",
+    "@changesets/cli": "catalog:",
     "eslint": "catalog:cli",
     "nano-staged": "catalog:cli",
     "simple-git-hooks": "catalog:cli",
