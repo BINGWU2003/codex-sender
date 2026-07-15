@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CursorInstaller, injectScriptTag, removeInjection } from '../src/cursor-installer.js'
+import { CursorInstaller, findCursorInstallation, injectScriptTag, removeInjection } from '../src/cursor-installer.js'
 
 const originalHtml = '<!doctype html>\n<html><body></body><script src="./workbench.js" type="module"></script></html>\n'
 
@@ -13,6 +13,10 @@ describe('cursor HTML patching', () => {
     expect(injected).toContain('codex-sender.inject.js')
     expect(injectScriptTag(injected).match(/codex-sender:start/g)).toHaveLength(1)
     expect(removeInjection(injected)).toBe(originalHtml)
+  })
+
+  it('does not fall back to another installation for an invalid explicit path', () => {
+    expect(() => findCursorInstallation(path.join(tmpdir(), 'missing-cursor-installation'))).toThrow('指定路径不是有效的 Cursor 安装')
   })
 })
 

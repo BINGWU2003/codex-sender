@@ -4,6 +4,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BridgeServer, Logger, StateStore } from '@codex-sender/bridge'
 import { CursorInstaller } from './cursor-installer.js'
+import { runInstallWizard, shouldRunInstallWizard, suggestCursorPath } from './install-wizard.js'
 import { registerStartup, removeStartup, startBridgeDetached } from './startup.js'
 
 const version = '0.1.0'
@@ -27,20 +28,57 @@ async function main(): Promise<void> {
   if (!['doctor', 'install', 'logs', 'repair', 'serve', 'uninstall'].includes(command))
     throw new Error(`未知命令：${command}\n运行 codex-sender help 查看帮助。`)
 
-  const cursorPath = readOption(args, '--cursor-path')
-  const port = readNumberOption(args, '--port')
-  const stateStore = new StateStore({ defaultPort: port })
-  const installer = new CursorInstaller({
-    dataDirectory: stateStore.dataDirectory,
-    cursorPath,
-  })
+  const requestedCursorPath = readOption(args, '--cursor-path')
+  const requestedPort = readNumberOption(args, '--port')
+  const stateStore = new StateStore({ defaultPort: requestedPort })
 
   switch (command) {
-    case 'install':
+    case 'install': {
+      const state = await stateStore.load()
+      const noStartup = args.includes('--no-startup')
+      const wizardResult = shouldRunInstallWizard(args)
+        ? await runInstallWizard({
+            cursorPath: suggestCursorPath(requestedCursorPath),
+            port: requestedPort ?? state.port,
+            registerStartup: !noStartup,
+            startBridge: !noStartup,
+          })
+        : {
+            cursorPath: requestedCursorPath,
+            port: requestedPort ?? state.port,
+            registerStartup: !noStartup,
+            startBridge: !noStartup,
+          }
+      if (!wizardResult)
+        return
+      const installer = new CursorInstaller({
+        dataDirectory: stateStore.dataDirectory,
+        cursorPath: wizardResult.cursorPath,
+      })
+      if (state.port !== wizardResult.port)
+        await stateStore.setPort(wizardResult.port)
+      const currentState = await stateStore.load()
+      const manifest = await installer.install({ port: currentState.port, token: currentState.token, version })
+      const cliEntryPath = fileURLToPath(import.meta.url)
+      if (wizardResult.registerStartup)
+        await registerStartup(cliEntryPath)
+      else
+        await removeStartup()
+      if (wizardResult.startBridge)
+        startBridgeDetached(cliEntryPath)
+      console.log(`Codex Sender 已注入 Cursor ${manifest.cursorVersion}`)
+      console.log(`Cursor 目录：${manifest.paths.appRoot}`)
+      console.log('请重新启动 Cursor。')
+      break
+    }
     case 'repair': {
       const state = await stateStore.load()
-      if (port && state.port !== port)
-        await stateStore.setPort(port)
+      if (requestedPort && state.port !== requestedPort)
+        await stateStore.setPort(requestedPort)
+      const installer = new CursorInstaller({
+        dataDirectory: stateStore.dataDirectory,
+        cursorPath: requestedCursorPath,
+      })
       const manifest = await installer.install({ port: state.port, token: state.token, version })
       const cliEntryPath = fileURLToPath(import.meta.url)
       if (!args.includes('--no-startup')) {
@@ -53,12 +91,20 @@ async function main(): Promise<void> {
       break
     }
     case 'uninstall': {
+      const installer = new CursorInstaller({
+        dataDirectory: stateStore.dataDirectory,
+        cursorPath: requestedCursorPath,
+      })
       await installer.uninstall()
       await removeStartup()
       console.log('Codex Sender 已从 Cursor 恢复。')
       break
     }
     case 'doctor': {
+      const installer = new CursorInstaller({
+        dataDirectory: stateStore.dataDirectory,
+        cursorPath: requestedCursorPath,
+      })
       const report = await installer.doctor()
       console.log(JSON.stringify(report, null, 2))
       if (!report.ok)
@@ -81,8 +127,8 @@ async function main(): Promise<void> {
     }
     case 'serve': {
       const state = await stateStore.load()
-      if (port && state.port !== port)
-        await stateStore.setPort(port)
+      if (requestedPort && state.port !== requestedPort)
+        await stateStore.setPort(requestedPort)
       const bridge = new BridgeServer({ stateStore, version })
       const listeningPort = await bridge.start()
       console.log(`Codex Sender bridge 正在监听 127.0.0.1:${listeningPort}`)
@@ -131,7 +177,7 @@ function printHelp(): void {
   console.log(`Codex Sender ${version}
 
 用法：
-  codex-sender install [--cursor-path PATH] [--port PORT] [--no-startup]
+  codex-sender install [--cursor-path PATH] [--port PORT] [--no-startup] [--non-interactive]
   codex-sender repair [--cursor-path PATH] [--port PORT] [--no-startup]
   codex-sender doctor [--cursor-path PATH]
   codex-sender logs [--lines COUNT]
@@ -139,5 +185,6 @@ function printHelp(): void {
   codex-sender uninstall
   codex-sender version
 
+install 默认在交互式终端中启动安装向导；使用 --non-interactive 可跳过向导。
 安装和恢复 Cursor 时必须先完全退出 Cursor。`)
 }

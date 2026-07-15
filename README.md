@@ -61,14 +61,31 @@ Codex Sender 不读取或渲染 Codex 回复，也不会通过 CLI 代替 Codex 
 - Windows 10/11。
 - Cursor 桌面版。
 - Codex App，并已完成登录。
-- Node.js 20 或更高版本。
+- Node.js 20.12 或更高版本。
 - 已安装并登录的 [Codex CLI](https://developers.openai.com/codex/cli/)；目前只用 `codex app-server` 读取历史任务，不用 `codex exec` 发送提示词。
 
 Cursor 位于 `Program Files` 等受保护目录时，安装、修复或卸载通常需要管理员终端。
 
-## 发布后安装
+## 发布后运行
 
-完全退出 Cursor，包括所有后台 `Cursor.exe` 进程，然后运行：
+完全退出 Cursor，包括所有后台 `Cursor.exe` 进程。可以选择使用 `npx` 免安装运行，或者全局安装后运行。
+
+`install` 默认启动交互式向导，可以编辑 Cursor 路径和 Bridge 端口，并通过空格勾选登录自启动、安装后立即启动等选项；按回车确认，按 `Esc` 或 `Ctrl+C` 取消且不会修改 Cursor。
+
+### 使用 npx
+
+适合临时试用、诊断或不希望全局安装 CLI 的场景：
+
+```powershell
+npx --yes codex-sender@latest install --no-startup
+npx --yes codex-sender@latest serve
+```
+
+`serve` 会在前台运行 Bridge，关闭终端后 Bridge 也会停止。由于 `npx` 的包路径位于 npm 缓存中，可能被缓存清理，长期使用和 Windows 登录自启动推荐采用全局安装。
+
+### 全局安装
+
+适合日常使用以及配置 Bridge 登录自启动：
 
 ```powershell
 npm install -g codex-sender
@@ -79,6 +96,9 @@ codex-sender install
 
 ```powershell
 codex-sender install --cursor-path "D:\Program Files\Cursor\Cursor.exe"
+
+# npx 免安装方式
+npx --yes codex-sender@latest install --cursor-path "D:\Program Files\Cursor\Cursor.exe" --no-startup
 ```
 
 ## 从源码试用
@@ -94,17 +114,35 @@ codex-sender install
 
 重新打开 Cursor，在编辑器右侧 Agent 面板中即可看到按钮。
 
-## 常用命令
+## 命令说明
 
-| 命令 | 作用 |
-| --- | --- |
-| `codex-sender install` | 备份并注入 Cursor，同时配置 Bridge 自启动 |
-| `codex-sender doctor` | 检查 HTML 注入、脚本文件和 Cursor checksum |
-| `codex-sender logs [--lines 100]` | 查看最近的结构化诊断日志 |
-| `codex-sender repair` | Cursor 更新或注入损坏后重新注入当前版本 |
-| `codex-sender serve` | 在前台启动 localhost Bridge，便于排错 |
-| `codex-sender uninstall` | 恢复 Cursor 文件并删除 Bridge 自启动脚本 |
-| `codex-sender version` | 显示当前版本 |
+以下命令既可以使用全局安装后的 `codex-sender`，也可以将命令前缀替换为 `npx --yes codex-sender@latest`：
+
+| 命令 | 作用 | 可用参数 |
+| --- | --- | --- |
+| `codex-sender install` | 启动交互式向导，确认后备份并注入 Cursor | `--cursor-path PATH`、`--port PORT`、`--no-startup`、`--non-interactive` |
+| `codex-sender repair` | Cursor 更新、按钮消失或注入损坏后重新注入当前版本 | `--cursor-path PATH`、`--port PORT`、`--no-startup` |
+| `codex-sender doctor` | 检查 Cursor 版本、HTML 注入、脚本文件和 checksum | `--cursor-path PATH` |
+| `codex-sender logs` | 查看最近的结构化诊断日志，默认显示 100 行 | `--lines COUNT` |
+| `codex-sender serve` | 在前台启动 localhost Bridge，适合 npx 使用或排错 | `--port PORT` |
+| `codex-sender uninstall` | 恢复 Cursor 文件、移除注入并删除 Bridge 登录启动项 | 无 |
+| `codex-sender version` | 显示当前 CLI 版本 | 无 |
+
+例如：
+
+```powershell
+# 检查安装状态
+npx --yes codex-sender@latest doctor
+
+# 查看最近 200 行日志
+npx --yes codex-sender@latest logs --lines 200
+
+# Cursor 更新后重新注入；执行前必须完全退出 Cursor
+npx --yes codex-sender@latest repair --cursor-path "D:\Program Files\Cursor\Cursor.exe" --no-startup
+
+# 恢复 Cursor 原文件并移除 Codex Sender
+npx --yes codex-sender@latest uninstall
+```
 
 安装、修复和卸载前必须完全退出 Cursor。如果不想注册登录启动项：
 
@@ -112,6 +150,14 @@ codex-sender install
 codex-sender install --no-startup
 codex-sender serve
 ```
+
+参数含义：
+
+- `--cursor-path PATH`：显式指定 `Cursor.exe`，自动发现失败或安装在自定义目录时使用。
+- `--port PORT`：指定 Bridge 监听端口，默认使用状态文件中保存的端口。
+- `--no-startup`：不注册 Windows 登录启动项；`install` 时会移除已有的 Codex Sender 启动项。
+- `--non-interactive`：跳过 `install` 安装向导，直接使用参数和默认值，适合脚本或 CI。
+- `--lines COUNT`：指定 `logs` 输出的最近日志行数。
 
 ## 工作原理与安全边界
 

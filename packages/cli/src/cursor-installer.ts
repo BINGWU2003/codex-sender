@@ -214,9 +214,11 @@ export class CursorInstaller {
 }
 
 export function findCursorInstallation(explicitPath?: string): CursorInstallationPaths {
-  const candidates = [explicitPath, process.env.CURSOR_APP_ROOT]
+  const candidates: Array<string | undefined> = explicitPath
+    ? [explicitPath]
+    : [process.env.CURSOR_APP_ROOT]
 
-  if (process.platform === 'win32') {
+  if (!explicitPath && process.platform === 'win32') {
     candidates.push(
       process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'cursor'),
       process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Cursor'),
@@ -233,6 +235,8 @@ export function findCursorInstallation(explicitPath?: string): CursorInstallatio
       return createInstallationPaths(root)
   }
 
+  if (explicitPath)
+    throw new Error(`指定路径不是有效的 Cursor 安装：${explicitPath}`)
   throw new Error('未找到 Cursor 安装目录，请使用 --cursor-path 显式指定 Cursor.exe 或 resources/app')
 }
 

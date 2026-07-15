@@ -15,18 +15,28 @@
     "directory": "packages/cli"
   },
   "bugs": "https://github.com/BINGWU2003/codex-sender/issues",
-  "keywords": ["cursor", "codex", "cli", "developer-tools"],
+  "keywords": [
+    "cursor",
+    "codex",
+    "cli",
+    "developer-tools"
+  ],
   "exports": {
     ".": "./dist/cli.mjs"
   },
   "bin": {
     "codex-sender": "./dist/cli.mjs"
   },
-  "files": ["README.md", "dist"],
+  "files": [
+    "README.md",
+    "dist"
+  ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.12.0"
   },
-  "os": ["win32"],
+  "os": [
+    "win32"
+  ],
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
@@ -34,6 +44,9 @@
     "prepack": "pnpm --workspace-root turbo run build --filter=codex-sender...",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:"
   },
   "devDependencies": {
     "@codex-sender/bridge": "workspace:*",

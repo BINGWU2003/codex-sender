@@ -15,6 +15,9 @@ trustPolicy: no-downgrade
 packages:
   - packages/*
 
+catalog:
+  '@clack/prompts': ^1.7.0
+
 catalogs:
   cli:
     '@antfu/eslint-config': ^9.0.0
