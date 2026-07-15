@@ -1,5 +1,11 @@
 # @codex-sender/cli
 
+## 0.1.3
+
+### Patch Changes
+
+- [`8744e1f`](https://github.com/BINGWU2003/codex-sender/commit/8744e1ffcd25c03843070093b94ba764e11332b1) Thanks [@BINGWU2003](https://github.com/BINGWU2003)! - 将 npm 包迁移为 `@codex-sender/cli`，全局安装后的 `codex-sender` 命令保持不变。
+
 ## 0.1.2
 
 ### Patch Changes
