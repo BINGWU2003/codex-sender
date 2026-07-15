@@ -1,5 +1,11 @@
 # @codex-sender/cli
 
+## 0.2.1
+
+### Patch Changes
+
+- [`967cf4c`](https://github.com/BINGWU2003/codex-sender/commit/967cf4c1d9a0f1b0af5540d15d03fd8c53cc0cd3) Thanks [@BINGWU2003](https://github.com/BINGWU2003)! - 检测注入脚本与 Bridge 的版本错配，并在 `doctor` 中报告旧 Bridge 进程，避免升级后切换交接方式时出现误导性的参数错误。
+
 ## 0.2.0
 
 ### Minor Changes
