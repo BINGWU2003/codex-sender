@@ -2,22 +2,21 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import * as prompts from '@clack/prompts'
-import { findCursorInstallation } from './cursor-installer.js'
+import { CursorInstaller, findCursorInstallation } from './cursor-installer.js'
 
-export type InstallFeature = 'start-bridge' | 'startup'
+export type InstallFeature = 'startup'
 
 export interface InstallWizardDefaults {
+  allowStartup?: boolean
   cursorPath?: string
   port: number
   registerStartup: boolean
-  startBridge: boolean
 }
 
 export interface InstallWizardResult {
   cursorPath: string
   port: number
   registerStartup: boolean
-  startBridge: boolean
 }
 
 export async function runInstallWizard(defaults: InstallWizardDefaults): Promise<InstallWizardResult | undefined> {
@@ -43,27 +42,22 @@ export async function runInstallWizard(defaults: InstallWizardDefaults): Promise
   const initialValues: InstallFeature[] = []
   if (defaults.registerStartup)
     initialValues.push('startup')
-  if (defaults.startBridge)
-    initialValues.push('start-bridge')
 
-  const features = await prompts.multiselect<InstallFeature>({
-    message: '选择安装选项（空格切换，回车确认）',
-    options: [
-      {
-        value: 'startup',
-        label: '注册 Windows 登录自启动',
-        hint: '登录 Windows 后自动运行 Bridge',
-      },
-      {
-        value: 'start-bridge',
-        label: '安装完成后立即启动 Bridge',
-        hint: '无需手动运行 serve',
-      },
-    ],
-    initialValues,
-    required: false,
-    showInstructions: true,
-  })
+  const features = defaults.allowStartup === false
+    ? []
+    : await prompts.multiselect<InstallFeature>({
+        message: '选择安装选项（空格切换，回车确认）',
+        options: [
+          {
+            value: 'startup',
+            label: '注册 Windows 登录自启动',
+            hint: '登录 Windows 后自动运行 Bridge',
+          },
+        ],
+        initialValues,
+        required: false,
+        showInstructions: true,
+      })
   if (prompts.isCancel(features))
     return cancelWizard()
 
@@ -71,13 +65,12 @@ export async function runInstallWizard(defaults: InstallWizardDefaults): Promise
     cursorPath: cursorPath.trim(),
     port: Number(port),
     registerStartup: features.includes('startup'),
-    startBridge: features.includes('start-bridge'),
   }
   prompts.note([
     `Cursor：${result.cursorPath}`,
     `Bridge：http://127.0.0.1:${result.port}`,
     `登录自启动：${result.registerStartup ? '是' : '否'}`,
-    `立即启动：${result.startBridge ? '是' : '否'}`,
+    'Bridge：安装后自动更新并启动',
   ].join('\n'), '安装配置')
 
   const confirmed = await prompts.confirm({
@@ -91,9 +84,20 @@ export async function runInstallWizard(defaults: InstallWizardDefaults): Promise
   return result
 }
 
-export function suggestCursorPath(explicitPath?: string): string | undefined {
+export async function suggestCursorPath(explicitPath?: string, dataDirectory?: string): Promise<string | undefined> {
   if (explicitPath)
     return explicitPath
+
+  if (dataDirectory) {
+    try {
+      const manifest = await new CursorInstaller({ dataDirectory }).readManifest()
+      if (manifest)
+        return findCursorInstallation(manifest.paths.appRoot).appRoot
+    }
+    catch {
+      // Ignore a missing, malformed, or stale installation manifest and rediscover Cursor.
+    }
+  }
 
   try {
     const { appRoot } = findCursorInstallation()

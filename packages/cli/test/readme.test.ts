@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
-const commands = ['install', 'repair', 'doctor', 'logs', 'serve', 'uninstall', 'version']
+const commands = ['install', 'doctor', 'logs', 'serve', 'uninstall', 'version']
 const options = ['--cursor-path', '--port', '--no-startup', '--non-interactive', '--lines']
 const deliveryModes = ['打开并复制', '打开并自动粘贴', '打开、自动粘贴并发送']
 
@@ -14,12 +14,14 @@ describe('readme command reference', () => {
 
     for (const command of commands)
       expect(content, `missing command: ${command}`).toContain(command)
+    expect(content).not.toMatch(/codex-sender repair|`repair`/)
     for (const option of options)
       expect(content, `missing option: ${option}`).toContain(option)
     for (const mode of deliveryModes)
       expect(content, `missing delivery mode: ${mode}`).toContain(mode)
 
     expect(content).toContain('Bridge 版本')
+    expect(content).toContain('自动更新')
     expect(content).toContain('Ctrl+C')
     expect(content).toContain('EPERM')
     expect(content).toContain('EADDRINUSE')

@@ -136,6 +136,30 @@ describe('diagnostic logger', () => {
 })
 
 describe('bridge server', () => {
+  it('allows the authenticated installer to stop an old Bridge', async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), 'codex-sender-shutdown-'))
+    const stateStore = new StateStore({ dataDirectory })
+    const state = await stateStore.load()
+    const server = new BridgeServer({ stateStore, port: 0, version: '0.2.4' })
+    servers.push(server)
+    const port = await server.start()
+
+    const unauthorized = await fetch(`http://127.0.0.1:${port}/api/shutdown`, { method: 'POST' })
+    expect(unauthorized.status).toBe(401)
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/shutdown`, {
+      method: 'POST',
+      headers: { 'x-codex-sender-token': state.token },
+    })
+    expect(response.status).toBe(200)
+
+    await vi.waitFor(async () => {
+      await expect(fetch(`http://127.0.0.1:${port}/health`, {
+        headers: { 'x-codex-sender-token': state.token },
+      })).rejects.toThrow()
+    })
+  })
+
   it('migrates existing version 1 state to the safe copy mode', async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), 'codex-sender-state-'))
     const statePath = path.join(dataDirectory, 'state.json')

@@ -1,10 +1,12 @@
 import type { CodexSenderSettings, CodexSenderState, DeliveryMode, WorkspaceThreadBinding } from '@codex-sender/core'
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { normalizeWorkspacePath } from '@codex-sender/core'
+import { getDefaultDataDirectory } from './data-directory.js'
+
+export { getDefaultDataDirectory, getLegacyDataDirectory, initializeDefaultDataDirectory } from './data-directory.js'
 
 export interface StateStoreOptions {
   dataDirectory?: string
@@ -93,12 +95,6 @@ export class StateStore {
     })
     await this.saveTask
   }
-}
-
-export function getDefaultDataDirectory(): string {
-  if (process.platform === 'win32' && process.env.LOCALAPPDATA)
-    return path.join(process.env.LOCALAPPDATA, 'codex-sender')
-  return path.join(homedir(), '.codex-sender')
 }
 
 function createDefaultState(port: number): CodexSenderState {

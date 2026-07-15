@@ -2,12 +2,13 @@
 import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { BridgeServer, Logger, StateStore } from '@codex-sender/bridge'
+import { BridgeServer, initializeDefaultDataDirectory, Logger, StateStore } from '@codex-sender/bridge'
 import { checkBridgeHealth } from './bridge-health.js'
+import { refreshBridge } from './bridge-lifecycle.js'
 import { CursorInstaller } from './cursor-installer.js'
 import { runInstallWizard, shouldRunInstallWizard, suggestCursorPath } from './install-wizard.js'
 import { readPackageVersion } from './package-info.js'
-import { registerStartup, removeStartup, startBridgeDetached } from './startup.js'
+import { registerStartup, removeStartup } from './startup.js'
 
 const version = await readPackageVersion()
 
@@ -27,29 +28,30 @@ async function main(): Promise<void> {
     printHelp()
     return
   }
-  if (!['doctor', 'install', 'logs', 'repair', 'serve', 'uninstall'].includes(command))
+  if (!['doctor', 'install', 'logs', 'serve', 'uninstall'].includes(command))
     throw new Error(`未知命令：${command}\n运行 codex-sender help 查看帮助。`)
 
   const requestedCursorPath = readOption(args, '--cursor-path')
   const requestedPort = readNumberOption(args, '--port')
-  const stateStore = new StateStore({ defaultPort: requestedPort })
+  const dataDirectory = await initializeDefaultDataDirectory()
+  const stateStore = new StateStore({ dataDirectory, defaultPort: requestedPort })
 
   switch (command) {
     case 'install': {
       const state = await stateStore.load()
       const noStartup = args.includes('--no-startup')
+      const cursorPath = await suggestCursorPath(requestedCursorPath, stateStore.dataDirectory)
       const wizardResult = shouldRunInstallWizard(args)
         ? await runInstallWizard({
-            cursorPath: suggestCursorPath(requestedCursorPath),
+            allowStartup: !noStartup,
+            cursorPath,
             port: requestedPort ?? state.port,
             registerStartup: !noStartup,
-            startBridge: !noStartup,
           })
         : {
-            cursorPath: requestedCursorPath,
+            cursorPath,
             port: requestedPort ?? state.port,
             registerStartup: !noStartup,
-            startBridge: !noStartup,
           }
       if (!wizardResult)
         return
@@ -66,29 +68,16 @@ async function main(): Promise<void> {
         await registerStartup(cliEntryPath)
       else
         await removeStartup()
-      if (wizardResult.startBridge)
-        startBridgeDetached(cliEntryPath)
-      console.log(`Codex Sender 已注入 Cursor ${manifest.cursorVersion}`)
-      console.log(`Cursor 目录：${manifest.paths.appRoot}`)
-      console.log('请重新启动 Cursor。')
-      break
-    }
-    case 'repair': {
-      const state = await stateStore.load()
-      if (requestedPort && state.port !== requestedPort)
-        await stateStore.setPort(requestedPort)
-      const installer = new CursorInstaller({
-        dataDirectory: stateStore.dataDirectory,
-        cursorPath: requestedCursorPath,
+      const bridge = await refreshBridge({
+        cliEntryPath,
+        currentVersion: version,
+        existingPorts: [state.port],
+        targetPort: currentState.port,
+        token: currentState.token,
       })
-      const manifest = await installer.install({ port: state.port, token: state.token, version })
-      const cliEntryPath = fileURLToPath(import.meta.url)
-      if (!args.includes('--no-startup')) {
-        await registerStartup(cliEntryPath)
-        startBridgeDetached(cliEntryPath)
-      }
       console.log(`Codex Sender 已注入 Cursor ${manifest.cursorVersion}`)
       console.log(`Cursor 目录：${manifest.paths.appRoot}`)
+      console.log(`Bridge ${bridge.version} 已更新并监听 127.0.0.1:${currentState.port}`)
       console.log('请重新启动 Cursor。')
       break
     }
@@ -195,13 +184,12 @@ function printHelp(): void {
 
 用法：
   codex-sender install [--cursor-path PATH] [--port PORT] [--no-startup] [--non-interactive]
-  codex-sender repair [--cursor-path PATH] [--port PORT] [--no-startup]
   codex-sender doctor [--cursor-path PATH]
   codex-sender logs [--lines COUNT]
   codex-sender serve [--port PORT]
-  codex-sender uninstall
+  codex-sender uninstall [--cursor-path PATH]
   codex-sender version
 
-install 默认在交互式终端中启动安装向导；使用 --non-interactive 可跳过向导。
+install 可重复执行，并会重新注入 Cursor、替换旧 Bridge 并启动当前版本；使用 --non-interactive 可跳过向导。
 安装和恢复 Cursor 时必须先完全退出 Cursor。`)
 }

@@ -89,6 +89,11 @@ export class BridgeServer {
         this.json(response, 200, { ok: true, version: this.version })
         return
       }
+      if (request.method === 'POST' && url.pathname === '/api/shutdown') {
+        this.json(response, 200, { ok: true })
+        setImmediate(() => void this.stop())
+        return
+      }
       if (request.method === 'GET' && url.pathname === '/api/threads') {
         await this.handleListThreads(url, response)
         return

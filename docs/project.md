@@ -226,17 +226,17 @@ Electron renderer 通过只监听本机的 Bridge 调用系统能力：
 本地状态与备份默认位于：
 
 ```text
-%LOCALAPPDATA%\codex-sender
+%USERPROFILE%\.codex-sender
 ```
 
-旧的 version 1 状态会迁移到 version 2，并默认采用安全的 `copy` 模式。
+旧的 version 1 状态会迁移到 version 2，并默认采用安全的 `copy` 模式。旧版本的 `%LOCALAPPDATA%\codex-sender` 会在新目录不存在时整体迁移，保留令牌、安装清单、备份和日志。
 
 ## 诊断日志
 
 Bridge 将 JSONL 日志写入：
 
 ```text
-%LOCALAPPDATA%\codex-sender\logs\codex-sender.log
+%USERPROFILE%\.codex-sender\logs\codex-sender.log
 ```
 
 单文件最大 2 MiB，保留 3 个轮转文件。可以运行 `codex-sender logs --lines 100` 查看最近事件。复制诊断包含原生 copy 是否成功、DOM 选区长度、富文本节点数量和节点 lineage 中的 `data-*`、`aria-*`、`title` 等属性；剪贴板和 fallback 提示词只记录长度、SHA-256 短哈希以及是否包含 `@`，访问令牌与授权头始终脱敏。
@@ -245,19 +245,18 @@ Bridge 将 JSONL 日志写入：
 
 | 命令 | 行为 |
 | --- | --- |
-| `install` | 备份、注入、注册并启动 Bridge |
-| `repair` | 使用当前配置重新注入，用于 Cursor 更新后恢复 |
+| `install` | 安装、修复或升级注入，并自动更新和启动 Bridge |
 | `doctor` | 检查注入标记、脚本存在性和 checksum |
 | `serve` | 前台启动 Bridge |
 | `uninstall` | 恢复 Cursor 文件并移除登录启动脚本 |
 | `version` | 输出 CLI 版本 |
 
-安装、修复、卸载必须在 Cursor 完全退出后进行。自动化测试使用临时 Cursor fixture，不修改真实安装。
+安装和卸载必须在 Cursor 完全退出后进行。自动化测试使用临时 Cursor fixture，不修改真实安装。
 
 ## 兼容性与已知限制
 
 - 第一版仅支持 Windows。
-- Cursor 更新会替换安装目录，需要重新运行 `repair`。
+- Cursor 更新会替换安装目录，需要重新运行 `install`。
 - 依赖 Cursor 私有 DOM，不保证跨版本稳定。
 - `doctor` 不启动 Cursor，因此无法验证真实按钮是否挂载。
 - Cursor 安装在受保护目录时需要管理员权限。
@@ -283,6 +282,6 @@ pnpm run build
 3. 构建产物不保留 `@codex-sender/*` 运行时 import。
 4. 临时 Cursor fixture 能完成安装、`doctor` 和卸载恢复。
 5. 全仓不再存在 `codex exec` 发送链、任务队列和 job 轮询。
-6. 在完全退出 Cursor 后运行 `repair`，验证按钮、列表、Deep Link、复制和实验粘贴流程。
+6. 在完全退出 Cursor 后重复运行 `install`，验证 Bridge 版本刷新、按钮、列表、Deep Link、复制和实验粘贴流程。
 
 官方 Deep Link 参数与“不自动发送”行为参考 [Codex App Deep Links](https://learn.chatgpt.com/docs/reference/commands#tasks)。
