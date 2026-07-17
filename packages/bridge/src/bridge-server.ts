@@ -305,6 +305,7 @@ export class BridgeServer {
       prefilled: result.prefilled,
       pasted: result.pasted,
       submitted: result.submitted,
+      draftDetection: result.draftDetection,
       warning: result.warning,
     })
   }

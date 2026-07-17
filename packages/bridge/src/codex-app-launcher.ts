@@ -23,13 +23,20 @@ export interface CodexAppDeliveryResult {
   submitted: boolean
   message: string
   warning?: string
+  draftDetection?: DraftDetection
+}
+
+export type DraftDetection = 'already-present' | 'native-copy' | 'value-pattern'
+
+export interface PasteIntoComposerResult {
+  draftDetection: DraftDetection
 }
 
 export interface CodexAppSystem {
   clearFocusedCursorPrompt: (expectedText: string) => Promise<void>
   copyFocusedCursorPrompt: () => Promise<string>
   copyAndOpen: (url: string, text: string) => Promise<void>
-  pasteIntoComposer: (text: string, submit?: boolean) => Promise<void>
+  pasteIntoComposer: (text: string, submit?: boolean) => Promise<PasteIntoComposerResult | void>
   readClipboardText: () => Promise<string>
 }
 
@@ -93,7 +100,7 @@ export class CodexAppLauncher {
     if (request.mode === 'paste' || request.mode === 'paste-and-send') {
       const shouldSubmit = request.mode === 'paste-and-send'
       try {
-        await this.system.pasteIntoComposer(request.text, shouldSubmit)
+        const pasteResult = await this.system.pasteIntoComposer(request.text, shouldSubmit)
         return {
           requestedMode: request.mode,
           mode: request.mode,
@@ -102,6 +109,7 @@ export class CodexAppLauncher {
           prefilled,
           pasted: !prefilled,
           submitted: shouldSubmit,
+          draftDetection: pasteResult?.draftDetection,
           message: shouldSubmit
             ? `已在 Codex App ${prefilled ? '预填' : '粘贴'}提示词并自动发送`
             : '已打开 Codex App 并粘贴提示词，请确认后按 Enter',
@@ -172,9 +180,14 @@ class WindowsCodexAppSystem implements CodexAppSystem {
     await runPowerShell(copyAndOpenScript, text, { CODEX_SENDER_URL: url })
   }
 
-  async pasteIntoComposer(text: string, submit = false): Promise<void> {
+  async pasteIntoComposer(text: string, submit = false): Promise<PasteIntoComposerResult> {
     // eslint-disable-next-line ts/no-use-before-define
-    await runPowerShell(pasteIntoComposerScript, text, { CODEX_SENDER_SUBMIT: submit ? '1' : '0' })
+    const draftDetection = (await runPowerShell(pasteIntoComposerScript, text, {
+      CODEX_SENDER_SUBMIT: submit ? '1' : '0',
+    })).trim()
+    if (!isDraftDetection(draftDetection))
+      throw new Error('Codex 输入框草稿探测未返回有效结果')
+    return { draftDetection }
   }
 
   async readClipboardText(): Promise<string> {
@@ -184,6 +197,10 @@ class WindowsCodexAppSystem implements CodexAppSystem {
       return ''
     return Buffer.from(encoded, 'base64').toString('utf8')
   }
+}
+
+function isDraftDetection(value: string): value is DraftDetection {
+  return value === 'already-present' || value === 'native-copy' || value === 'value-pattern'
 }
 
 async function runPowerShell(script: string, input = '', extraEnvironment: NodeJS.ProcessEnv = {}): Promise<string> {
@@ -353,6 +370,8 @@ public static class CodexSenderNative {
   [DllImport("user32.dll")]
   public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")]
+  public static extern uint GetClipboardSequenceNumber();
+  [DllImport("user32.dll")]
   public static extern bool GetCursorPos(out POINT point);
   [DllImport("user32.dll")]
   public static extern bool SetCursorPos(int x, int y);
@@ -373,13 +392,13 @@ function Read-ElementText($element) {
   return $null
 }
 
-function Test-IsEmptyComposerText($value) {
-  if ($null -eq $value -or [String]::IsNullOrWhiteSpace($value)) { return $true }
-  $normalized = $value.Trim()
-  return $normalized -in @(
-    '要求后续变更',
-    'Ask for follow-up changes'
-  )
+function Read-ElementValue($element) {
+  try {
+    $pattern = $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+    return [PSCustomObject]@{ Supported = $true; Value = $pattern.Current.Value }
+  } catch {
+    return [PSCustomObject]@{ Supported = $false; Value = $null }
+  }
 }
 
 function Find-Composer {
@@ -463,9 +482,44 @@ function Click-Composer($composer) {
   }
 }
 
+function Test-IsComposerEmptyByNativeCopy($composer, $windowHandle, $promptText) {
+  $selection = $null
+  try {
+    $textPattern = $composer.GetCurrentPattern([Windows.Automation.TextPattern]::Pattern)
+    $ranges = $textPattern.GetSelection()
+    if ($ranges.Count -gt 0) { $selection = $ranges[0].Clone() }
+  } catch {}
+
+  $sentinel = 'codex-sender-draft-probe-' + [Guid]::NewGuid().ToString('N')
+  try {
+    Set-Clipboard -Value $sentinel
+    $beforeSequence = [CodexSenderNative]::GetClipboardSequenceNumber()
+    [Windows.Forms.SendKeys]::SendWait('^a')
+    Start-Sleep -Milliseconds 75
+    [Windows.Forms.SendKeys]::SendWait('^c')
+    Start-Sleep -Milliseconds 175
+
+    if ([CodexSenderNative]::GetForegroundWindow().ToInt32() -ne $windowHandle) {
+      throw '草稿探测期间 Codex App 窗口焦点发生变化，已停止自动粘贴'
+    }
+    if (-not (Test-ComposerFocus $composer)) {
+      throw '草稿探测期间 Codex 输入框焦点发生变化，已停止自动粘贴'
+    }
+
+    $afterSequence = [CodexSenderNative]::GetClipboardSequenceNumber()
+    return $afterSequence -eq $beforeSequence
+  } finally {
+    Set-Clipboard -Value $promptText
+    if ($null -ne $selection) {
+      try { $selection.Select() } catch {}
+    }
+  }
+}
+
 $deadline = [DateTime]::UtcNow.AddSeconds(12)
 $verified = $false
 $pasteAttempts = 0
+$draftDetection = $null
 $textNormalized = $text -replace [char]13, ''
 while ([DateTime]::UtcNow -lt $deadline -and -not $verified) {
   $target = Find-Composer
@@ -484,10 +538,8 @@ while ([DateTime]::UtcNow -lt $deadline -and -not $verified) {
     $existingNormalized = $existing -replace [char]13, ''
     if ($null -ne $existing -and $existingNormalized.Contains($textNormalized)) {
       $verified = $true
+      if ($null -eq $draftDetection) { $draftDetection = 'already-present' }
       break
-    }
-    if (-not (Test-IsEmptyComposerText $existing)) {
-      throw 'Codex 输入框中已有草稿，为避免覆盖已停止自动粘贴'
     }
     $composer.SetFocus()
   } catch [System.Windows.Automation.ElementNotAvailableException] {
@@ -511,6 +563,29 @@ while ([DateTime]::UtcNow -lt $deadline -and -not $verified) {
     Start-Sleep -Milliseconds 200
     continue
   }
+
+  if ($pasteAttempts -eq 0) {
+    $valueState = Read-ElementValue $composer
+    if ($valueState.Supported) {
+      $value = $valueState.Value
+      $valueNormalized = $value -replace [char]13, ''
+      if ($null -ne $value -and $valueNormalized.Contains($textNormalized)) {
+        $verified = $true
+        $draftDetection = 'already-present'
+        break
+      }
+      if (-not [String]::IsNullOrWhiteSpace($value)) {
+        throw 'Codex 输入框中已有草稿，为避免覆盖已停止自动粘贴'
+      }
+      $draftDetection = 'value-pattern'
+    } else {
+      if (-not (Test-IsComposerEmptyByNativeCopy $composer $target.WindowHandle $text)) {
+        throw 'Codex 输入框中已有可复制内容，为避免覆盖已停止自动粘贴'
+      }
+      $draftDetection = 'native-copy'
+    }
+  }
+
   [Windows.Forms.SendKeys]::SendWait('^v')
   $pasteAttempts += 1
 
@@ -554,4 +629,5 @@ if ($env:CODEX_SENDER_SUBMIT -eq '1') {
   }
   [Windows.Forms.SendKeys]::SendWait('{ENTER}')
 }
+[Console]::Out.Write($draftDetection)
 `
