@@ -90,6 +90,7 @@ describe('codex app launcher', () => {
 
   it('pastes and submits an existing task only in paste-and-send mode', async () => {
     const system = createFakeSystem()
+    vi.mocked(system.pasteIntoComposer).mockResolvedValueOnce({ draftDetection: 'native-copy' })
     const launcher = new CodexAppLauncher({ platform: 'win32', system })
     const result = await launcher.deliver({
       cwd: 'D:\\work\\demo',
@@ -103,6 +104,7 @@ describe('codex app launcher', () => {
       requestedMode: 'paste-and-send',
       pasted: true,
       submitted: true,
+      draftDetection: 'native-copy',
     })
     expect(system.pasteIntoComposer).toHaveBeenCalledWith('继续处理', true)
   })
@@ -114,6 +116,18 @@ describe('codex app launcher', () => {
 
     expect(result).toMatchObject({ prefilled: true, pasted: false, submitted: true })
     expect(system.pasteIntoComposer).toHaveBeenCalledWith('新任务', true)
+  })
+
+  it('guards native paste by copying selectable content instead of matching placeholders', async () => {
+    const source = await readFile(new URL('../src/codex-app-launcher.ts', import.meta.url), 'utf8')
+
+    expect(source).toContain('GetClipboardSequenceNumber')
+    expect(source).toContain('codex-sender-draft-probe-')
+    expect(source).toContain('return $afterSequence -eq $beforeSequence')
+    expect(source).toContain('$draftDetection = \'native-copy\'')
+    expect(source).not.toContain('Test-IsEmptyComposerText')
+    expect(source).not.toContain('要求后续变更')
+    expect(source).not.toContain('Ask for follow-up changes')
   })
 })
 
