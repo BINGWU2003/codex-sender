@@ -1,5 +1,11 @@
 # @codex-sender/cli
 
+## 0.4.1
+
+### Patch Changes
+
+- [#12](https://github.com/BINGWU2003/codex-sender/pull/12) [`1aa652f`](https://github.com/BINGWU2003/codex-sender/commit/1aa652f2b1feffd74dfeed40febece1fd42ebac6) Thanks [@BINGWU2003](https://github.com/BINGWU2003)! - 修复 Codex App 输入框在视觉为空时，因辅助功能树返回占位文本而被误判为已有草稿的问题。自动粘贴现在优先读取真实输入值，并在富文本输入框中通过原生复制探测可选内容，不再依赖固定的占位文案。
+
 ## 0.4.0
 
 ### Minor Changes
